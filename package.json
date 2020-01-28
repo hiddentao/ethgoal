@@ -1,0 +1,37 @@
+{
+  "name": "ethgoal.io",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ethgoal.io",
+  "main": "truffle-config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "devnet": "ganache-cli",
+    "compile": "truffle compile",
+    "deploy:local": "truffle migrate"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hiddentao/ethgoal.io.git"
+  },
+  "author": "Ramesh Nair <ram@hiddentao.com>",
+  "license": "AGPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/hiddentao/ethgoal.io/issues"
+  },
+  "homepage": "https://github.com/hiddentao/ethgoal.io#readme",
+  "devDependencies": {
+    "ganache-cli": "^6.8.2",
+    "solhint": "^2.3.0",
+    "solidity-coverage": "^0.7.1",
+    "truffle": "^5.1.10",
+    "truffle-hdwallet-provider": "^1.0.17",
+    "web3-provider-engine": "^15.0.4"
+  },
+  "dependencies": {
+    "babel-cli": "^6.26.0",
+    "babel-preset-env": "^1.7.0"
+  }
+}
