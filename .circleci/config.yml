@@ -1,0 +1,64 @@
+version: 2.1
+
+
+executors:
+  smart_contracts:
+    docker:
+      - image: circleci/node:12.13.0
+      - image: trufflesuite/ganache-cli
+        command: ganache-cli -a 10 -m "funny door sample enrich female wedding stereo crane setup shop dwarf dismiss"
+
+
+commands:
+  install_node_modules:
+    parameters:
+      executor:
+        type: string
+    steps:
+      - restore_cache:
+          name: Restore npm cache
+          key: << parameters.executor >>-npm-cache-{{ checksum "package-lock.json" }}
+      - run:
+          name: Install dependencies
+          command: npm
+      - save_cache:
+          name: Save npm cache
+          key: << parameters.executor >>-npm-cache-{{ checksum "package-lock.json" }}
+          paths:
+            - ~/.npm
+
+
+jobs:
+  build_contracts:
+    executor: smart_contracts
+    working_directory: ~/repo
+    steps:
+      - checkout:
+          path: ~/repo
+      - install_node_modules:
+          executor: contracts
+      - run:
+          name: Compile
+          command: npm run compile
+      - run:
+          name: Deploy initial contracts
+          command: npm run deploy:local
+      - run:
+          name: Run tests with coverage
+          command: npm run coverage
+      - store_artifacts:
+          path: ~/repo/coverage
+          destination: coverage
+      - run:
+          name: Upload coverage report to coveralls
+          command: cat ./coverage/lcov.info | npm coveralls
+      - persist_to_workspace:
+          root: ~/repo
+          paths: .
+
+
+workflows:
+  version: 2
+  ci:
+    jobs:
+      - build_contracts

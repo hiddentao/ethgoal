@@ -3,17 +3,17 @@ pragma solidity >=0.6.1;
 import "./ECDSA.sol";
 import "./IERC20.sol";
 
-contract GoalPot {
-    address bank;
-    address admin;
-    bool locked;
+contract Controller {
+    address public bank;
+    address public admin;
+    bool public locked;
 
     struct Judgement {
         uint pledgeId;
         bool passed;
     }
-    mapping (uint => Judgement) judgements;
-    uint numJudgements;
+    mapping (uint => Judgement) public judgements;
+    uint public numJudgements;
 
     struct Pledge {
         address creator;
@@ -28,7 +28,7 @@ contract GoalPot {
         address unit;
         uint endDate;
     }
-    mapping (uint => Pledge) pledges;
+    mapping (uint => Pledge) public pledges;
     uint public numPledges;
 
     struct User {

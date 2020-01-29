@@ -1,7 +1,7 @@
 const Migrations = artifacts.require("Migrations")
-const Goals = artifacts.require("Goals")
+const Controller = artifacts.require("Controller")
 
 module.exports = deployer => {
   deployer.deploy(Migrations)
-  deployer.deploy(Goals)
+  deployer.deploy(Controller)
 }
