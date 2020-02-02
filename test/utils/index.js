@@ -7,6 +7,8 @@ import chaiAsPromised from 'chai-as-promised'
 import packageJson from '../../package.json'
 import { toBN, isBN } from './web3'
 
+export * from './web3'
+
 const MNEMONIC = (packageJson.scripts.devnet.match(/\'(.+)\'/))[1]
 console.log(`Mnemonic: ${MNEMONIC}`)
 

@@ -78,12 +78,12 @@ contract Controller {
       address _potUnit,
       uint _endDate,
       uint _numJudges,
-      string memory _msgPrefix,
       bytes memory _judgeSig0,
       bytes memory _judgeSig1,
       bytes memory _judgeSig2
     ) public payable canCreate returns (uint) {
-        require(_numJudges <= 3, 'no more than 3 judges allowed');
+        require(_numJudges >= 1, 'atleast 1 judge needed');
+        require(_numJudges <= 3, 'max 3 judges allowed');
         require(_endDate > now, 'end date must be in future');
         require(_potAmount > 0, 'pot amount must be non-zero');
 
@@ -97,20 +97,21 @@ contract Controller {
         users[msg.sender].numPledgesCreated += 1;
 
         // setup judges
-        bytes[] memory sigs = new bytes[](_numJudges);
+        bytes[] memory sigs = new bytes[](3);
         sigs[0] = _judgeSig0;
         sigs[1] = _judgeSig1;
         sigs[2] = _judgeSig2;
 
-        bytes32 msgHash = calculateMsgHash(_msgPrefix, msg.sender, _potAmount, _potUnit, _endDate);
+        bytes32 fingerPrint = calculatePledgeFingerprint(msg.sender, _potAmount, _potUnit, _endDate, _numJudges);
 
         for (uint i = 0; i < _numJudges; i += 1) {
           // get judge address
-          address judgeAddress = ECDSA.recover(msgHash, sigs[i]);
+          address judgeAddress = recoverSigner(fingerPrint, sigs[i]);
+
           // sanity checks
           require(judgeAddress != address(0), 'invalid judge');
           require(judgeAddress != pledges[numPledges].creator, 'creator cannot be judge');
-          require(!pledges[numPledges].isJudge[judgeAddress], 'duplicate judge not allowed');
+          require(!pledges[numPledges].isJudge[judgeAddress], 'duplicate judge found');
           // update pledge
           pledges[numPledges].judges[pledges[numPledges].numJudges] = judgeAddress;
           pledges[numPledges].numJudges += 1;
@@ -125,6 +126,7 @@ contract Controller {
         pledges[numPledges].amount = _potAmount - users[bank].balances[_potUnit];
         pledges[numPledges].pot = pledges[numPledges].amount;
 
+        // inc. counters
         numPledges = numPledges + 1;
 
         // finally, do the transfer
@@ -140,20 +142,20 @@ contract Controller {
 
     function judgePledge(uint _pledgeId, bool _result) public canJudge(_pledgeId) {
         // create a judgement
-        uint jid = numJudgements;
-        numJudgements = jid + 1;
-
-        Judgement storage j = judgements[jid];
+        Judgement storage j = judgements[numJudgements];
         j.pledgeId = _pledgeId;
         j.passed = _result;
 
         // mark judgements
         Pledge storage p = pledges[_pledgeId];
-        p.judgements[msg.sender] = jid;
+        p.judgements[msg.sender] = numJudgements;
         p.numJudgements += 1;
         if (!_result) {
             p.numFailedJudgements += 1;
         }
+
+        // inc. counters
+        numJudgements += 1;
 
         // if enough negative judgements then close pledge right now
         if (pledgeFailed(_pledgeId)) {
@@ -215,20 +217,22 @@ contract Controller {
       address _creator,
       uint _potAmount,
       address _potUnit,
-      uint _endDate
+      uint _endDate,
+      uint _numJudges
     ) public pure returns (bytes32) {
-      return keccak256(abi.encodePacked(_creator, _potAmount, _potUnit, _endDate));
+      return keccak256(abi.encodePacked(_creator, _potAmount, _potUnit, _endDate, _numJudges));
     }
 
-    function calculateMsgHash(
-      string memory _prefix,
-      address _creator,
-      uint _potAmount,
-      address _potUnit,
-      uint _endDate
-    ) public pure returns (bytes32) {
-      bytes32 fingerprint = calculatePledgeFingerprint(_creator, _potAmount, _potUnit, _endDate);
-      return ECDSA.toEthSignedMessageHash(keccak256(abi.encodePacked(_prefix, fingerprint)));
+    function recoverSigner (
+        bytes32 _fingerprint,
+        bytes memory sig
+    ) public pure returns (address) {
+        bytes32 h = ECDSA.toEthSignedMessageHash(_fingerprint);
+        return ECDSA.recover(h, sig);
+    }
+
+    function getTime() public view returns (uint) {
+        return now;
     }
 
     function lock () public isAdmin {
