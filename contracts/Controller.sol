@@ -35,10 +35,10 @@ contract Controller {
         mapping (address => uint) balances;
         mapping (uint => uint) pledgesCreated;
         uint numPledgesCreated;
-        uint latestActiveCreatedPledge;
+        uint oldestActiveCreatedPledgeIndex;
         mapping (uint => uint) pledgesJudged;
         uint numPledgesJudged;
-        uint latestActiveJudgedPledge;
+        uint oldestActiveJudgedPledgeIndex;
     }
     mapping (address => User) public users;
 
@@ -127,7 +127,7 @@ contract Controller {
         pledges[numPledges].pot = pledges[numPledges].amount;
 
         // inc. counters
-        numPledges = numPledges + 1;
+        numPledges += 1;
 
         // finally, do the transfer
         if (_potUnit != address(0)) {
@@ -166,23 +166,23 @@ contract Controller {
     function updateBalances(address _user) public {
         User storage u = users[_user];
 
-        for (uint i = u.latestActiveCreatedPledge; i < u.numPledgesCreated; i += 1) {
+        for (uint i = u.oldestActiveCreatedPledgeIndex; i < u.numPledgesCreated; i += 1) {
             uint pledgeId = u.pledgesCreated[i];
             Pledge storage p = pledges[pledgeId];
             // if pledge pot yet to be redistributed
             if (p.pot > 0 && pledgeEnded(pledgeId) && !pledgeCanBeJudged(pledgeId)) {
                 closePledge(pledgeId);
-                u.latestActiveCreatedPledge += 1;
+                u.oldestActiveCreatedPledgeIndex += 1;
             }
         }
 
-        for (uint i = u.latestActiveJudgedPledge; i < u.numPledgesJudged; i += 1) {
+        for (uint i = u.oldestActiveJudgedPledgeIndex; i < u.numPledgesJudged; i += 1) {
             uint pledgeId = u.pledgesCreated[i];
             Pledge storage p = pledges[pledgeId];
             // if pledge pot yet to be redistributed
             if (p.pot > 0 && pledgeEnded(pledgeId) && !pledgeCanBeJudged(pledgeId)) {
                 closePledge(pledgeId);
-                u.latestActiveJudgedPledge += 1;
+                u.oldestActiveJudgedPledgeIndex += 1;
             }
         }
     }
@@ -241,6 +241,10 @@ contract Controller {
 
     function unlock () public isAdmin {
         locked = false;
+    }
+
+    function getPledgeJudge(uint _pledgeId, uint _judgeIndex) public view returns (address) {
+        return pledges[_pledgeId].judges[_judgeIndex];
     }
 
     /// Internal functions ///
