@@ -9,6 +9,7 @@ contract Controller {
     bool public locked;
 
     struct Judgement {
+        address judge;
         uint pledgeId;
         bool passed;
     }
@@ -23,8 +24,8 @@ contract Controller {
         mapping (address => uint) judgements;
         uint numJudgements;
         uint numFailedJudgements;
-        uint amount;
         uint pot;
+        uint balance;
         address unit;
         uint endDate;
     }
@@ -42,23 +43,28 @@ contract Controller {
     }
     mapping (address => User) public users;
 
+    event NewPledge(uint indexed pledgeId);
+    event NewJudgement(uint indexed judgementId);
+    event Withdraw(address indexed caller);
+    event Locked(address indexed caller);
+    event Unlocked(address indexed caller);
 
     modifier canJudge(uint _pledgeId) {
+        // ensure contract is not locked
+        require(!locked, 'contract locked');
         // ensure that pledge is ready to be judged
-        require(pledges[_pledgeId].endDate <= now, 'pledge still active');
+        require(pledgeEnded(_pledgeId), 'not yet ended');
         // ensure that pledge is still in judgement phase
-        require(pledgeCanBeJudged(_pledgeId), 'already ended');
+        require(!pledgeExpired(_pledgeId), 'already expired');
         // ensure the caller is a judge
         require(pledges[_pledgeId].isJudge[msg.sender], 'must be a judge');
-        _;
-    }
-
-    modifier canClose (uint _pledgeId) {
-        require(now - pledges[_pledgeId].endDate >= 2 weeks, 'not yet ended');
+        // ensure that user hasn't already judged
+        require(0 == pledges[_pledgeId].judgements[msg.sender], 'already judged');
         _;
     }
 
     modifier canCreate {
+        // ensure contract is not locked
         require(!locked, 'contract locked');
         _;
     }
@@ -85,15 +91,21 @@ contract Controller {
         require(_numJudges >= 1, 'atleast 1 judge needed');
         require(_numJudges <= 3, 'max 3 judges allowed');
         require(_endDate > now, 'end date must be in future');
-        require(_potAmount > 0, 'pot amount must be non-zero');
+        require(_potAmount >= 1000000000, 'pot amount must be atleast 1 gwei');
+
+        // inc. counter (pledge ids start from 1)
+        numPledges += 1;
+
+        uint pledgeId = numPledges;
 
         // create pledge
-        pledges[numPledges].creator = msg.sender;
-        pledges[numPledges].unit = _potUnit;
-        pledges[numPledges].endDate = _endDate;
+        pledges[pledgeId].creator = msg.sender;
+        pledges[pledgeId].unit = _potUnit;
+        pledges[pledgeId].endDate = _endDate;
+        pledges[pledgeId].pot = _potAmount;
 
         // update user entry for creator
-        users[msg.sender].pledgesCreated[users[msg.sender].numPledgesCreated] = numPledges;
+        users[msg.sender].pledgesCreated[users[msg.sender].numPledgesCreated] = pledgeId;
         users[msg.sender].numPledgesCreated += 1;
 
         // setup judges
@@ -110,24 +122,20 @@ contract Controller {
 
           // sanity checks
           require(judgeAddress != address(0), 'invalid judge');
-          require(judgeAddress != pledges[numPledges].creator, 'creator cannot be judge');
-          require(!pledges[numPledges].isJudge[judgeAddress], 'duplicate judge found');
+          require(judgeAddress != pledges[pledgeId].creator, 'creator cannot be judge');
+          require(!pledges[pledgeId].isJudge[judgeAddress], 'duplicate judge found');
           // update pledge
-          pledges[numPledges].judges[pledges[numPledges].numJudges] = judgeAddress;
-          pledges[numPledges].numJudges += 1;
-          pledges[numPledges].isJudge[judgeAddress] = true;
+          pledges[pledgeId].judges[pledges[pledgeId].numJudges] = judgeAddress;
+          pledges[pledgeId].numJudges += 1;
+          pledges[pledgeId].isJudge[judgeAddress] = true;
           // update user entry
-          users[judgeAddress].pledgesJudged[users[judgeAddress].numPledgesJudged] = numPledges;
+          users[judgeAddress].pledgesJudged[users[judgeAddress].numPledgesJudged] = pledgeId;
           users[judgeAddress].numPledgesJudged += 1;
         }
 
-        // calculate fee from pot
-        users[bank].balances[_potUnit] = _potAmount / 1000; // 0.1%
-        pledges[numPledges].amount = _potAmount - users[bank].balances[_potUnit];
-        pledges[numPledges].pot = pledges[numPledges].amount;
-
-        // inc. counters
-        numPledges += 1;
+        // take fee from pot
+        users[bank].balances[_potUnit] += _potAmount / 1000; // 0.1%
+        pledges[pledgeId].balance = _potAmount - (_potAmount / 1000);
 
         // finally, do the transfer
         if (_potUnit != address(0)) {
@@ -138,75 +146,71 @@ contract Controller {
         } else {
             require(msg.value >= _potAmount, 'not enough ETH');
         }
+
+        emit NewPledge(pledgeId);
     }
 
     function judgePledge(uint _pledgeId, bool _result) public canJudge(_pledgeId) {
+        // inc. counter (judgement ids start from 1)
+        numJudgements += 1;
+
+        uint judgementId = numJudgements;
+
         // create a judgement
-        Judgement storage j = judgements[numJudgements];
+        Judgement storage j = judgements[judgementId];
+        j.judge = msg.sender;
         j.pledgeId = _pledgeId;
         j.passed = _result;
 
         // mark judgements
         Pledge storage p = pledges[_pledgeId];
-        p.judgements[msg.sender] = numJudgements;
+        p.judgements[msg.sender] = judgementId;
         p.numJudgements += 1;
         if (!_result) {
             p.numFailedJudgements += 1;
         }
 
-        // inc. counters
-        numJudgements += 1;
 
         // if enough negative judgements then close pledge right now
         if (pledgeFailed(_pledgeId)) {
-            closePledge(_pledgeId);
-        }
-    }
-
-    function updateBalances(address _user) public {
-        User storage u = users[_user];
-
-        for (uint i = u.oldestActiveCreatedPledgeIndex; i < u.numPledgesCreated; i += 1) {
-            uint pledgeId = u.pledgesCreated[i];
-            Pledge storage p = pledges[pledgeId];
-            // if pledge pot yet to be redistributed
-            if (p.pot > 0 && pledgeEnded(pledgeId) && !pledgeCanBeJudged(pledgeId)) {
-                closePledge(pledgeId);
-                u.oldestActiveCreatedPledgeIndex += 1;
-            }
+            payoutPledgePot(_pledgeId);
         }
 
-        for (uint i = u.oldestActiveJudgedPledgeIndex; i < u.numPledgesJudged; i += 1) {
-            uint pledgeId = u.pledgesCreated[i];
-            Pledge storage p = pledges[pledgeId];
-            // if pledge pot yet to be redistributed
-            if (p.pot > 0 && pledgeEnded(pledgeId) && !pledgeCanBeJudged(pledgeId)) {
-                closePledge(pledgeId);
-                u.oldestActiveJudgedPledgeIndex += 1;
-            }
-        }
-    }
-
-    function calculateWithdrawableBalance(address _user, address _unit) public returns (uint) {
-        updateBalances(_user);
-        return users[_user].balances[_unit];
+        emit NewJudgement(judgementId);
     }
 
     function withdraw (address _unit) public {
         updateBalances(msg.sender);
         withdrawBalance(msg.sender, msg.sender, _unit);
+        emit Withdraw(msg.sender);
     }
 
     function withdrawAdminFee (address _unit) public isAdmin {
         withdrawBalance(bank, msg.sender, _unit);
     }
 
+    function lock () public isAdmin {
+        if (!locked) {
+            locked = true;
+            emit Locked(msg.sender);
+        }
+    }
+
+    function unlock () public isAdmin {
+        if (locked) {
+            locked = false;
+            emit Unlocked(msg.sender);
+        }
+    }
+
+    /// Read-only functions ///
+
     function pledgeEnded (uint _pledgeId) public view returns (bool) {
         return now >= pledges[_pledgeId].endDate;
     }
 
-    function pledgeCanBeJudged (uint _pledgeId) public view returns (bool) {
-        return (now - pledges[_pledgeId].endDate < 2 weeks);
+    function pledgeExpired (uint _pledgeId) public view returns (bool) {
+        return (now - pledges[_pledgeId].endDate > 2 weeks);
     }
 
     function pledgeFailed (uint _pledgeId) public view returns (bool) {
@@ -223,49 +227,43 @@ contract Controller {
       return keccak256(abi.encodePacked(_creator, _potAmount, _potUnit, _endDate, _numJudges));
     }
 
-    function recoverSigner (
-        bytes32 _fingerprint,
-        bytes memory sig
-    ) public pure returns (address) {
-        bytes32 h = ECDSA.toEthSignedMessageHash(_fingerprint);
-        return ECDSA.recover(h, sig);
-    }
-
     function getTime() public view returns (uint) {
         return now;
     }
 
-    function lock () public isAdmin {
-        locked = true;
-    }
-
-    function unlock () public isAdmin {
-        locked = false;
+    function getUserBalance(address _user, address _unit) public view returns (uint) {
+        return users[_user].balances[_unit];
     }
 
     function getPledgeJudge(uint _pledgeId, uint _judgeIndex) public view returns (address) {
         return pledges[_pledgeId].judges[_judgeIndex];
     }
 
+    function getPledgeJudgement(uint _pledgeId, address _judge) public view returns (uint) {
+        return pledges[_pledgeId].judgements[_judge];
+    }
+
     /// Internal functions ///
 
-    function closePledge(uint _pledgeId) internal {
+    function payoutPledgePot(uint _pledgeId) internal {
         Pledge storage p = pledges[_pledgeId];
 
         // failed?
         if (pledgeFailed(_pledgeId)) {
+            uint judgeReward = p.balance / p.numJudges;
+
             // split amongst judges
             for (uint i = 0; i < p.numJudges; i += 1) {
                 address j = p.judges[i];
-                users[j].balances[p.unit] = p.pot / p.numJudges;
+                users[j].balances[p.unit] += judgeReward;
             }
         }
         // passed?
         else {
-            users[p.creator].balances[p.unit] = p.pot;
+            users[p.creator].balances[p.unit] += p.balance;
         }
 
-        p.pot = 0;
+        p.balance = 0;
     }
 
     function withdrawBalance (address _user, address payable _recipient, address _unit) internal {
@@ -279,5 +277,39 @@ contract Controller {
         } else {
             IERC20(_unit).transfer(_recipient, amount);
         }
+    }
+
+
+    function updateBalances(address _user) internal {
+        User storage u = users[_user];
+
+        for (uint i = u.oldestActiveCreatedPledgeIndex; i < u.numPledgesCreated; i += 1) {
+            uint pledgeId = u.pledgesCreated[i];
+            Pledge storage p = pledges[pledgeId];
+            // if pledge pot yet to be redistributed
+            if (p.pot > 0 && pledgeExpired(pledgeId)) {
+                payoutPledgePot(pledgeId);
+                u.oldestActiveCreatedPledgeIndex += 1;
+            }
+        }
+
+        for (uint i = u.oldestActiveJudgedPledgeIndex; i < u.numPledgesJudged; i += 1) {
+            uint pledgeId = u.pledgesCreated[i];
+            Pledge storage p = pledges[pledgeId];
+            // if pledge pot yet to be redistributed
+            if (p.pot > 0 && pledgeExpired(pledgeId)) {
+                payoutPledgePot(pledgeId);
+                u.oldestActiveJudgedPledgeIndex += 1;
+            }
+        }
+    }
+
+
+    function recoverSigner (
+        bytes32 _fingerprint,
+        bytes memory sig
+    ) internal pure returns (address) {
+        bytes32 h = ECDSA.toEthSignedMessageHash(_fingerprint);
+        return ECDSA.recover(h, sig);
     }
 }

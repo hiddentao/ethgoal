@@ -7,7 +7,11 @@ import chaiAsPromised from 'chai-as-promised'
 import packageJson from '../../package.json'
 import { toBN, isBN } from './web3'
 
+import EthVal from 'ethval'
+
 export * from './web3'
+
+const Controller = artifacts.require('./Controller')
 
 const MNEMONIC = (packageJson.scripts.devnet.match(/\'(.+)\'/))[1]
 console.log(`Mnemonic: ${MNEMONIC}`)
@@ -79,6 +83,15 @@ export const getBalance = async addr => toBN(await web3.eth.getBalance(addr))
 
 export const mulBN = (bn, factor) => bn.mul(toBN(factor * 1000)).div(toBN(1000))
 
+export const events = [ Controller ].reduce((output, contract) => {
+  contract.abi.filter(({ type, name }) => type === 'event').forEach(e => {
+    if (!output[e.name]) {
+      output[e.name] = e
+    }
+  })
+  return output
+}, {})
+
 export const parseEvents = (result, e) => {
   return parseLog(result.receipt.rawLogs, [e])
 }
@@ -116,3 +129,7 @@ export const web3EvmIncreaseTime = (web3, ts) => {
     })
   })
 }
+
+export const gwei = v => new EthVal(v, 'gwei').toWei()
+export const wei = v => new EthVal(v, 'wei')
+export const eth = v => new EthVal(v, 'eth').toWei()
