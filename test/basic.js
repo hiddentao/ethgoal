@@ -185,6 +185,9 @@ contract('Basic tests', accounts => {
       const fee1 = c.pot / 1000
       expect(c.balance.toNumber()).to.eq(c.pot - fee1)
 
+      await controller.pledgeJudgeable(1).should.eventually.eq(false)
+      await controller.pledgeWithdrawable(1).should.eventually.eq(false)
+
       // second pledge
       c = await controller.pledges(2)
       expect(c.creator).to.eq(accounts[1])
@@ -197,6 +200,9 @@ contract('Basic tests', accounts => {
       await controller.getPledgeJudge(2, 0).should.eventually.eq(accounts[2])
       const fee2 = c.pot / 1000
       expect(c.balance.toNumber()).to.eq(c.pot - fee2)
+
+      await controller.pledgeJudgeable(2).should.eventually.eq(false)
+      await controller.pledgeWithdrawable(2).should.eventually.eq(false)
 
       // bank
       await controller.getUserBalance(controller.address, ADDRESS_ZERO).should.eventually.eq(fee1 + fee2)
@@ -247,13 +253,17 @@ contract('Basic tests', accounts => {
         await controller.judgePledge(1, false, { from: accounts[4] }).should.be.rejectedWith('must be a judge')
       })
 
-      it('but not if pledge is still active', async () => {
-        await controller.judgePledge(1, false, { from: accounts[1] }).should.be.rejectedWith('not yet ended')
+      it('but not if pledge is not yet judgeable', async () => {
+        await controller.judgePledge(1, false, { from: accounts[1] }).should.be.rejectedWith('not judgeable')
       })
 
-      it('but not if pledge has expired', async () => {
+      it('but not if pledge is past the judgement phase', async () => {
         await web3EvmIncreaseTime(web3, 86400 * 14 + 101 /* ~ 2 weeks after end time */)
-        await controller.judgePledge(1, false, { from: accounts[1] }).should.be.rejectedWith('already expired')
+
+        await controller.pledgeJudgeable(1).should.eventually.eq(false)
+        await controller.pledgeWithdrawable(1).should.eventually.eq(true)
+
+        await controller.judgePledge(1, false, { from: accounts[1] }).should.be.rejectedWith('not judgeable')
       })
 
       it('but not if sender has already judged', async () => {
@@ -264,6 +274,10 @@ contract('Basic tests', accounts => {
 
       it('and the verdict can be positive', async () => {
         await web3EvmIncreaseTime(web3, 100)
+
+        await controller.pledgeJudgeable(1).should.eventually.eq(true)
+        await controller.pledgeWithdrawable(1).should.eventually.eq(false)
+
         await controller.judgePledge(1, true, { from: accounts[1] }).should.be.fulfilled
 
         // check pledge
@@ -324,7 +338,7 @@ contract('Basic tests', accounts => {
         expect(j.passed).to.eq(false)
       })
 
-      it('and if a clear majority is negative then the pledge has failed pot gets paid out', async () => {
+      it('and if a clear majority is negative then the pledge has failed and the pot gets paid out', async () => {
         const initialBalance = (await controller.pledges(1)).balance.toNumber()
 
         await web3EvmIncreaseTime(web3, 100)
@@ -387,6 +401,12 @@ contract('Basic tests', accounts => {
         await controller.getUserBalance(accounts[1], ADDRESS_ZERO).should.eventually.eq(0)
         await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(initialBalance)
       })
+    })
+  })
+
+  describe('complex balance calculations', () => {
+    it('are possible', async () => {
+
     })
   })
 })

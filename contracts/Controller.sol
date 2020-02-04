@@ -53,9 +53,7 @@ contract Controller {
         // ensure contract is not locked
         require(!locked, 'contract locked');
         // ensure that pledge is ready to be judged
-        require(pledgeEnded(_pledgeId), 'not yet ended');
-        // ensure that pledge is still in judgement phase
-        require(!pledgeExpired(_pledgeId), 'already expired');
+        require(pledgeJudgeable(_pledgeId), 'not judgeable');
         // ensure the caller is a judge
         require(pledges[_pledgeId].isJudge[msg.sender], 'must be a judge');
         // ensure that user hasn't already judged
@@ -205,12 +203,22 @@ contract Controller {
 
     /// Read-only functions ///
 
-    function pledgeEnded (uint _pledgeId) public view returns (bool) {
-        return now >= pledges[_pledgeId].endDate;
+    function pledgeJudgeable (uint _pledgeId) public view returns (bool) {
+        if (now < pledges[_pledgeId].endDate) {
+            return false;
+        }
+
+        uint diff = now - pledges[_pledgeId].endDate;
+
+        return (diff >= 0) && (diff <= 2 weeks);
     }
 
-    function pledgeExpired (uint _pledgeId) public view returns (bool) {
-        return (now - pledges[_pledgeId].endDate > 2 weeks);
+    function pledgeWithdrawable (uint _pledgeId) public view returns (bool) {
+        if (now < pledges[_pledgeId].endDate) {
+            return false;
+        }
+
+        return (now - pledges[_pledgeId].endDate) > 2 weeks;
     }
 
     function pledgeFailed (uint _pledgeId) public view returns (bool) {
@@ -232,7 +240,21 @@ contract Controller {
     }
 
     function getUserBalance(address _user, address _unit) public view returns (uint) {
-        return users[_user].balances[_unit];
+        User storage u = users[_user];
+
+        uint b = u.balances[_unit];
+
+        for (uint i = u.oldestActiveCreatedPledgeIndex; i < u.numPledgesCreated; i += 1) {
+            uint pledgeId = u.pledgesCreated[i];
+            b += calculatePledgePayout(pledgeId, _user, _unit);
+        }
+
+        for (uint i = u.oldestActiveJudgedPledgeIndex; i < u.numPledgesJudged; i += 1) {
+            uint pledgeId = u.pledgesCreated[i];
+            b += calculatePledgePayout(pledgeId, _user, _unit);
+        }
+
+        return b;
     }
 
     function getPledgeJudge(uint _pledgeId, uint _judgeIndex) public view returns (address) {
@@ -243,7 +265,9 @@ contract Controller {
         return pledges[_pledgeId].judgements[_judge];
     }
 
+
     /// Internal functions ///
+
 
     function payoutPledgePot(uint _pledgeId) internal {
         Pledge storage p = pledges[_pledgeId];
@@ -287,7 +311,7 @@ contract Controller {
             uint pledgeId = u.pledgesCreated[i];
             Pledge storage p = pledges[pledgeId];
             // if pledge pot yet to be redistributed
-            if (p.pot > 0 && pledgeExpired(pledgeId)) {
+            if (p.pot > 0 && pledgeWithdrawable(pledgeId)) {
                 payoutPledgePot(pledgeId);
                 u.oldestActiveCreatedPledgeIndex += 1;
             }
@@ -297,7 +321,7 @@ contract Controller {
             uint pledgeId = u.pledgesCreated[i];
             Pledge storage p = pledges[pledgeId];
             // if pledge pot yet to be redistributed
-            if (p.pot > 0 && pledgeExpired(pledgeId)) {
+            if (p.pot > 0 && pledgeWithdrawable(pledgeId)) {
                 payoutPledgePot(pledgeId);
                 u.oldestActiveJudgedPledgeIndex += 1;
             }
@@ -311,5 +335,32 @@ contract Controller {
     ) internal pure returns (address) {
         bytes32 h = ECDSA.toEthSignedMessageHash(_fingerprint);
         return ECDSA.recover(h, sig);
+    }
+
+
+    function calculatePledgePayout(uint _pledgeId, address _user, address _unit) internal view returns (uint) {
+        Pledge storage p = pledges[_pledgeId];
+
+        if (p.balance == 0 || p.unit != _unit || !pledgeWithdrawable(_pledgeId)) {
+            return 0;
+        }
+
+        if (p.creator != _user && !p.isJudge[_user]) {
+            return 0;
+        }
+
+        if (pledgeFailed(_pledgeId)) {
+            if (p.creator != _user) {
+                return p.balance / p.numJudges;
+            } else {
+                return 0;
+            }
+        } else {
+            if (p.creator != _user) {
+                return 0;
+            } else {
+                return p.balance;
+            }
+        }
     }
 }

@@ -116,8 +116,13 @@ export const outputBNs = bn => {
 }
 
 
-export const web3EvmIncreaseTime = (web3, ts) => {
-  return new Promise((resolve, reject) => {
+export const gwei = v => new EthVal(v, 'gwei').toWei()
+export const wei = v => new EthVal(v, 'wei')
+export const eth = v => new EthVal(v, 'eth').toWei()
+
+
+export const web3EvmIncreaseTime = async (web3, ts) => {
+  await new Promise((resolve, reject) => {
     return web3.currentProvider.send({
       jsonrpc: '2.0',
       method: 'evm_increaseTime',
@@ -128,8 +133,16 @@ export const web3EvmIncreaseTime = (web3, ts) => {
       return resolve(result)
     })
   })
-}
 
-export const gwei = v => new EthVal(v, 'gwei').toWei()
-export const wei = v => new EthVal(v, 'wei')
-export const eth = v => new EthVal(v, 'eth').toWei()
+  await new Promise((resolve, reject) => {
+    return web3.currentProvider.send({
+      jsonrpc: '2.0',
+      method: 'evm_mine',
+      params: [],
+      id: new Date().getTime()
+    }, (err, result) => {
+      if (err) { return reject(err) }
+      return resolve(result)
+    })
+  })
+}
