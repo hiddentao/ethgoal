@@ -2,11 +2,16 @@ pragma solidity >=0.6.1;
 
 import "./ECDSA.sol";
 import "./IERC20.sol";
+import "./SafeMath.sol";
 
 contract Controller {
+      using SafeMath for *;
+
     address public bank;
     address public admin;
     bool public locked;
+    uint public fee;
+    uint public judgementPeriod;
 
     struct Judgement {
         address judge;
@@ -72,9 +77,11 @@ contract Controller {
         _;
     }
 
-    constructor () public {
+    constructor (uint _fee, uint _judgementPeriod) public {
         admin = msg.sender;
         bank = address(this);
+        fee = _fee;
+        judgementPeriod = _judgementPeriod;
     }
 
     function createPledge(
@@ -132,14 +139,14 @@ contract Controller {
         }
 
         // take fee from pot
-        users[bank].balances[_potUnit] += _potAmount / 1000; // 0.1%
-        pledges[pledgeId].balance = _potAmount - (_potAmount / 1000);
+        users[bank].balances[_potUnit] = users[bank].balances[_potUnit].add(_potAmount.div(fee));
+        pledges[pledgeId].balance = _potAmount.sub(_potAmount.div(fee));
 
         // finally, do the transfer
         if (_potUnit != address(0)) {
             IERC20 tkn = IERC20(_potUnit);
             require(tkn.balanceOf(msg.sender) >= _potAmount, 'not enough token balance');
-            require(tkn.allowance(bank, msg.sender) >= _potAmount, 'need approval');
+            require(tkn.allowance(msg.sender, bank) >= _potAmount, 'need approval');
             require(IERC20(_potUnit).transferFrom(msg.sender, bank, _potAmount), 'transfer failed');
         } else {
             require(msg.value >= _potAmount, 'not enough ETH');
@@ -210,7 +217,7 @@ contract Controller {
 
         uint diff = now - pledges[_pledgeId].endDate;
 
-        return (diff >= 0) && (diff <= 2 weeks);
+        return (diff >= 0) && (diff <= judgementPeriod);
     }
 
     function pledgeWithdrawable (uint _pledgeId) public view returns (bool) {
@@ -218,7 +225,7 @@ contract Controller {
             return false;
         }
 
-        return (now - pledges[_pledgeId].endDate) > 2 weeks;
+        return (now - pledges[_pledgeId].endDate) > judgementPeriod;
     }
 
     function pledgeFailed (uint _pledgeId) public view returns (bool) {
@@ -242,19 +249,17 @@ contract Controller {
     function getUserBalance(address _user, address _unit) public view returns (uint) {
         User storage u = users[_user];
 
-        uint b = u.balances[_unit];
+        uint b1 = u.balances[_unit];
 
         for (uint i = u.oldestActiveCreatedPledgeIndex; i < u.numPledgesCreated; i += 1) {
-            uint pledgeId = u.pledgesCreated[i];
-            b += calculatePledgePayout(pledgeId, _user, _unit);
+            b1 = b1.add(calculatePledgePayout(u.pledgesCreated[i], _user, _unit));
         }
 
-        for (uint i = u.oldestActiveJudgedPledgeIndex; i < u.numPledgesJudged; i += 1) {
-            uint pledgeId = u.pledgesCreated[i];
-            b += calculatePledgePayout(pledgeId, _user, _unit);
+        for (uint j = u.oldestActiveJudgedPledgeIndex; j < u.numPledgesJudged; j += 1) {
+            b1 = b1.add(calculatePledgePayout(u.pledgesJudged[j], _user, _unit));
         }
 
-        return b;
+        return b1;
     }
 
     function getPledgeJudge(uint _pledgeId, uint _judgeIndex) public view returns (address) {
@@ -274,17 +279,17 @@ contract Controller {
 
         // failed?
         if (pledgeFailed(_pledgeId)) {
-            uint judgeReward = p.balance / p.numJudges;
+            uint judgeReward = p.balance.div(p.numJudges);
 
             // split amongst judges
             for (uint i = 0; i < p.numJudges; i += 1) {
                 address j = p.judges[i];
-                users[j].balances[p.unit] += judgeReward;
+                users[j].balances[p.unit] = users[j].balances[p.unit].add(judgeReward);
             }
         }
         // passed?
         else {
-            users[p.creator].balances[p.unit] += p.balance;
+            users[p.creator].balances[p.unit] = users[p.creator].balances[p.unit].add(p.balance);
         }
 
         p.balance = 0;
@@ -318,7 +323,7 @@ contract Controller {
         }
 
         for (uint i = u.oldestActiveJudgedPledgeIndex; i < u.numPledgesJudged; i += 1) {
-            uint pledgeId = u.pledgesCreated[i];
+            uint pledgeId = u.pledgesJudged[i];
             Pledge storage p = pledges[pledgeId];
             // if pledge pot yet to be redistributed
             if (p.pot > 0 && pledgeWithdrawable(pledgeId)) {
@@ -351,7 +356,7 @@ contract Controller {
 
         if (pledgeFailed(_pledgeId)) {
             if (p.creator != _user) {
-                return p.balance / p.numJudges;
+                return p.balance.div(p.numJudges);
             } else {
                 return 0;
             }
