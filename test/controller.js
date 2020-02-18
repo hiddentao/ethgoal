@@ -11,11 +11,9 @@ import {
 import { ensureEtherTokenIsDeployed } from '../migrations/utils/etherToken'
 
 const Controller = artifacts.require('./Controller')
-const ControllerImpl = artifacts.require('./ControllerImpl')
-const Controller = artifacts.require('./Controller')
 
 
-contract('Basic tests', accounts => {
+contract('Controller', accounts => {
   let controller
   let currentTime
   let etherToken
@@ -77,24 +75,24 @@ contract('Basic tests', accounts => {
   })
 
   it('has contract address assigned as bank', async () => {
-    await controller.bank().should.eventually.eq(controller.address)
+    await controller.getBank().should.eventually.eq(controller.address)
   })
 
   it('is initially unlocked', async () => {
-    await controller.locked().should.eventually.eq(false)
+    await controller.isLocked().should.eventually.eq(false)
   })
 
   describe('can be locked / unlocked', () => {
     it('but not just by anyone', async () => {
-      await controller.lock({ from: accounts[1] }).should.be.rejectedWith('must be admin')
-      await controller.unlock({ from: accounts[1] }).should.be.rejectedWith('must be admin')
+      await controller.lock({ from: accounts[1] }).should.be.rejectedWith('Ownable: caller is not the owner')
+      await controller.unlock({ from: accounts[1] }).should.be.rejectedWith('Ownable: caller is not the owner')
     })
 
     it('by the admin', async () => {
       await controller.lock().should.be.fulfilled
-      await controller.locked().should.eventually.eq(true)
+      await controller.isLocked().should.eventually.eq(true)
       await controller.unlock().should.be.fulfilled
-      await controller.locked().should.eventually.eq(false)
+      await controller.isLocked().should.eventually.eq(false)
     })
   })
 
@@ -182,11 +180,11 @@ contract('Basic tests', accounts => {
     })
 
     it('has the correct initial data', async () => {
-      await controller.numPledges().should.eventually.eq(2)
-      await controller.numJudgements().should.eventually.eq(0)
+      await controller.getNumPledges().should.eventually.eq(2)
+      await controller.getNumJudgements().should.eventually.eq(0)
 
       // first pledge
-      let c = await controller.pledges(1)
+      let c = await controller.getPledge(1)
       expect(c.creator).to.eq(accounts[0])
       expect(c.numJudges.toNumber()).to.eq(pledgeInputs[0].numJudges)
       expect(c.numJudgements.toNumber()).to.eq(0)
@@ -203,7 +201,7 @@ contract('Basic tests', accounts => {
       await controller.pledgeWithdrawable(1).should.eventually.eq(false)
 
       // second pledge
-      c = await controller.pledges(2)
+      c = await controller.getPledge(2)
       expect(c.creator).to.eq(accounts[1])
       expect(c.numJudges.toNumber()).to.eq(pledgeInputs[1].numJudges)
       expect(c.numJudgements.toNumber()).to.eq(0)
@@ -222,21 +220,21 @@ contract('Basic tests', accounts => {
       await controller.getUserBalance(controller.address, ADDRESS_ZERO).should.eventually.eq(fee1 + fee2)
 
       // accounts[0]
-      c = await controller.users(accounts[0])
+      c = await controller.getUser(accounts[0])
       expect(c.numPledgesCreated.toNumber()).to.eq(1)
       expect(c.oldestActiveCreatedPledgeIndex.toNumber()).to.eq(0)
       expect(c.numPledgesJudged.toNumber()).to.eq(0)
       expect(c.oldestActiveJudgedPledgeIndex.toNumber()).to.eq(0)
 
       // accounts[1]
-      c = await controller.users(accounts[1])
+      c = await controller.getUser(accounts[1])
       expect(c.numPledgesCreated.toNumber()).to.eq(1)
       expect(c.oldestActiveCreatedPledgeIndex.toNumber()).to.eq(0)
       expect(c.numPledgesJudged.toNumber()).to.eq(1)
       expect(c.oldestActiveJudgedPledgeIndex.toNumber()).to.eq(0)
 
       // accounts[2]
-      c = await controller.users(accounts[2])
+      c = await controller.getUser(accounts[2])
       expect(c.numPledgesCreated.toNumber()).to.eq(0)
       expect(c.oldestActiveCreatedPledgeIndex.toNumber()).to.eq(0)
       expect(c.numPledgesJudged.toNumber()).to.eq(2)
@@ -295,14 +293,14 @@ contract('Basic tests', accounts => {
         await controller.judgePledge(1, true, { from: accounts[1] }).should.be.fulfilled
 
         // check pledge
-        const p = await controller.pledges(1)
+        const p = await controller.getPledge(1)
         expect(p.numJudgements.toNumber()).to.eq(1)
         expect(p.numFailedJudgements.toNumber()).to.eq(0)
         await controller.getPledgeJudgement(1, accounts[1]).should.eventually.eq(1)
 
         // check judgement
-        await controller.numJudgements().should.eventually.eq(1)
-        const j = await controller.judgements(1)
+        await controller.getNumJudgements().should.eventually.eq(1)
+        const j = await controller.getJudgement(1)
         expect(j.judge).to.eq(accounts[1])
         expect(j.pledgeId.toNumber()).to.eq(1)
         expect(j.passed).to.eq(true)
@@ -313,14 +311,14 @@ contract('Basic tests', accounts => {
         await controller.judgePledge(1, false, { from: accounts[2] }).should.be.fulfilled
 
         // check pledge
-        const p = await controller.pledges(1)
+        const p = await controller.getPledge(1)
         expect(p.numJudgements.toNumber()).to.eq(1)
         expect(p.numFailedJudgements.toNumber()).to.eq(1)
         await controller.getPledgeJudgement(1, accounts[2]).should.eventually.eq(1)
 
         // check judgement
-        await controller.numJudgements().should.eventually.eq(1)
-        const j = await controller.judgements(1)
+        await controller.getNumJudgements().should.eventually.eq(1)
+        const j = await controller.getJudgement(1)
         expect(j.judge).to.eq(accounts[2])
         expect(j.pledgeId.toNumber()).to.eq(1)
         expect(j.passed).to.eq(false)
@@ -332,7 +330,7 @@ contract('Basic tests', accounts => {
         await controller.judgePledge(1, false, { from: accounts[2] }).should.be.fulfilled
 
         // check pledge
-        const p = await controller.pledges(1)
+        const p = await controller.getPledge(1)
         expect(p.numJudgements.toNumber()).to.eq(2)
         expect(p.numFailedJudgements.toNumber()).to.eq(1)
         await controller.getPledgeJudgement(1, accounts[1]).should.eventually.eq(1)
@@ -341,26 +339,26 @@ contract('Basic tests', accounts => {
         await controller.pledgeFailed(1).should.eventually.eq(false)
 
         // check judgements
-        await controller.numJudgements().should.eventually.eq(2)
-        let j = await controller.judgements(1)
+        await controller.getNumJudgements().should.eventually.eq(2)
+        let j = await controller.getJudgement(1)
         expect(j.judge).to.eq(accounts[1])
         expect(j.pledgeId.toNumber()).to.eq(1)
         expect(j.passed).to.eq(true)
-        j = await controller.judgements(2)
+        j = await controller.getJudgement(2)
         expect(j.judge).to.eq(accounts[2])
         expect(j.pledgeId.toNumber()).to.eq(1)
         expect(j.passed).to.eq(false)
       })
 
       it('and if a clear majority is negative then the pledge has failed and the pot gets paid out', async () => {
-        const initialBalance = (await controller.pledges(1)).balance.toNumber()
+        const initialBalance = (await controller.getPledge(1)).balance.toNumber()
 
         await web3EvmIncreaseTime(web3, 100)
         await controller.judgePledge(1, false, { from: accounts[1] }).should.be.fulfilled
         await controller.judgePledge(1, false, { from: accounts[2] }).should.be.fulfilled
 
         // check pledge
-        const p = await controller.pledges(1)
+        const p = await controller.getPledge(1)
         expect(p.numJudgements.toNumber()).to.eq(2)
         expect(p.numFailedJudgements.toNumber()).to.eq(2)
         await controller.getPledgeJudgement(1, accounts[1]).should.eventually.eq(1)
@@ -369,12 +367,12 @@ contract('Basic tests', accounts => {
         await controller.pledgeFailed(1).should.eventually.eq(true)
 
         // check judgements
-        await controller.numJudgements().should.eventually.eq(2)
-        let j = await controller.judgements(1)
+        await controller.getNumJudgements().should.eventually.eq(2)
+        let j = await controller.getJudgement(1)
         expect(j.judge).to.eq(accounts[1])
         expect(j.pledgeId.toNumber()).to.eq(1)
         expect(j.passed).to.eq(false)
-        j = await controller.judgements(2)
+        j = await controller.getJudgement(2)
         expect(j.judge).to.eq(accounts[2])
         expect(j.pledgeId.toNumber()).to.eq(1)
         expect(j.passed).to.eq(false)
@@ -389,13 +387,13 @@ contract('Basic tests', accounts => {
       })
 
       it('and if there is just one judge then that judge gets the whole payout if pledge fails', async () => {
-        const initialBalance = (await controller.pledges(2)).balance.toNumber()
+        const initialBalance = (await controller.getPledge(2)).balance.toNumber()
 
         await web3EvmIncreaseTime(web3, 100)
         await controller.judgePledge(2, false, { from: accounts[2] }).should.be.fulfilled
 
         // check pledge
-        const p = await controller.pledges(2)
+        const p = await controller.getPledge(2)
         expect(p.numJudgements.toNumber()).to.eq(1)
         expect(p.numFailedJudgements.toNumber()).to.eq(1)
         await controller.getPledgeJudgement(2, accounts[2]).should.eventually.eq(1)
@@ -403,8 +401,8 @@ contract('Basic tests', accounts => {
         await controller.pledgeFailed(2).should.eventually.eq(true)
 
         // // check judgements
-        await controller.numJudgements().should.eventually.eq(1)
-        let j = await controller.judgements(1)
+        await controller.getNumJudgements().should.eventually.eq(1)
+        let j = await controller.getJudgement(1)
         expect(j.judge).to.eq(accounts[2])
         expect(j.pledgeId.toNumber()).to.eq(2)
         expect(j.passed).to.eq(false)
@@ -458,9 +456,9 @@ contract('Basic tests', accounts => {
       })))
 
       // get balances
-      const pledge1Balance = (await controller.pledges(1)).balance.toNumber()
-      const pledge2Balance = (await controller.pledges(2)).balance.toNumber()
-      const pledge3Balance = (await controller.pledges(3)).balance.toNumber()
+      const pledge1Balance = (await controller.getPledge(1)).balance.toNumber()
+      const pledge2Balance = (await controller.getPledge(2)).balance.toNumber()
+      const pledge3Balance = (await controller.getPledge(3)).balance.toNumber()
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)
@@ -535,9 +533,9 @@ contract('Basic tests', accounts => {
       })))
 
       // get balances
-      const pledge1Balance = (await controller.pledges(1)).balance.toNumber()
-      const pledge2Balance = (await controller.pledges(2)).balance.toNumber()
-      const pledge3Balance = (await controller.pledges(3)).balance.toNumber()
+      const pledge1Balance = (await controller.getPledge(1)).balance.toNumber()
+      const pledge2Balance = (await controller.getPledge(2)).balance.toNumber()
+      const pledge3Balance = (await controller.getPledge(3)).balance.toNumber()
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)
@@ -583,9 +581,9 @@ contract('Basic tests', accounts => {
       })))
 
       // get balances
-      const pledge4Balance = (await controller.pledges(4)).balance.toNumber()
-      const pledge5Balance = (await controller.pledges(5)).balance.toNumber()
-      const pledge6Balance = (await controller.pledges(6)).balance.toNumber()
+      const pledge4Balance = (await controller.getPledge(4)).balance.toNumber()
+      const pledge5Balance = (await controller.getPledge(5)).balance.toNumber()
+      const pledge6Balance = (await controller.getPledge(6)).balance.toNumber()
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)
@@ -658,9 +656,9 @@ contract('Basic tests', accounts => {
       })))
 
       // get balances
-      const pledge1Balance = (await controller.pledges(1)).balance.toNumber()
-      const pledge2Balance = (await controller.pledges(2)).balance.toNumber()
-      const pledge3Balance = (await controller.pledges(3)).balance.toNumber()
+      const pledge1Balance = (await controller.getPledge(1)).balance.toNumber()
+      const pledge2Balance = (await controller.getPledge(2)).balance.toNumber()
+      const pledge3Balance = (await controller.getPledge(3)).balance.toNumber()
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)

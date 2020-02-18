@@ -2,13 +2,12 @@ pragma solidity >=0.6.1;
 
 import "./IProxyImpl.sol";
 import "./Ownable.sol";
+import "./EternalStorage.sol";
 
 /*
 Based on https://github.com/zeppelinos/labs/blob/master/upgradeability_using_eternal_storage/contracts
 */
-contract Proxy is Ownable {
-  address public implementation;
-
+contract Proxy is EternalStorage, Ownable {
   /**
   * @dev This event will be emitted every time the implementation gets upgraded
   * @param implementation representing the address of the upgraded implementation
@@ -20,7 +19,7 @@ contract Proxy is Ownable {
    */
   constructor (address _implementation) public {
     require(_implementation != address(0), 'implementation must be valid');
-    implementation = _implementation;
+    dataAddress["impl"] = _implementation;
   }
 
   /**
@@ -28,7 +27,7 @@ contract Proxy is Ownable {
   * @return address of the implementation to which it will be delegated
   */
   function getImplementation() public view returns (address) {
-    return implementation;
+    return dataAddress["impl"];
   }
 
   /**
@@ -37,11 +36,11 @@ contract Proxy is Ownable {
    */
   function setImplementation(address _implementation) public onlyOwner {
     require(_implementation != address(0), 'implementation must be valid');
-    require(_implementation != implementation, 'already this implementation');
+    require(_implementation != dataAddress["impl"], 'already this implementation');
 
     string memory version = IProxyImpl(_implementation).getImplementationVersion();
 
-    implementation = _implementation;
+    dataAddress["impl"] = _implementation;
 
     emit Upgraded(_implementation, version);
   }
