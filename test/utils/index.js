@@ -13,7 +13,7 @@ export * from './web3'
 
 const Controller = artifacts.require('./Controller')
 
-const MNEMONIC = (packageJson.scripts.devnet.match(/\'(.+)\'/))[1]
+export const MNEMONIC = (packageJson.scripts.devnet.match(/\'(.+)\'/))[1]
 console.log(`Mnemonic: ${MNEMONIC}`)
 
 chai.use((_chai, utils) => {

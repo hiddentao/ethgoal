@@ -1,7 +1,7 @@
 pragma solidity >=0.6.1;
 
-import "./IERC20.sol";
-import "./SafeMath.sol";
+import "./base/IERC20.sol";
+import "./base/SafeMath.sol";
 
 /**
  * Represents Wrapped ETH, see https://blog.0xproject.com/canonical-weth-a9aa7d0279dd

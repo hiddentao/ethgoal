@@ -5,10 +5,13 @@ import {
   events,
   web3EvmIncreaseTime,
   gwei,
+  wei,
 } from './utils'
 
 import { ensureEtherTokenIsDeployed } from '../migrations/utils/etherToken'
 
+const Controller = artifacts.require('./Controller')
+const ControllerImpl = artifacts.require('./ControllerImpl')
 const Controller = artifacts.require('./Controller')
 
 
@@ -21,8 +24,11 @@ contract('Basic tests', accounts => {
   let createPledge
   let feeDivider
   let judgementPeriodSeconds
+  let getBalance
 
   beforeEach(async () => {
+    getBalance = async a => wei(await web3.eth.getBalance(a))
+
     etherToken = await ensureEtherTokenIsDeployed({ artifacts })
 
     feeDivider = 1000  // fee of 0.1%
@@ -609,6 +615,89 @@ contract('Basic tests', accounts => {
 
       await controller.getUserBalance(accounts[2], etherToken.address).should.eventually.eq(pledge2Balance + pledge6Balance)
       await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2)
+    })
+  })
+
+  describe('withdrawals are possible', () => {
+    it('and balances reflect updated values afterwards', async () => {
+      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[0] })
+      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[1] })
+      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[2] })
+
+      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[0] })
+      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[1] })
+      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[2] })
+
+      const pledgeInputs = await Promise.all([
+        preparePledge({
+          creator: accounts[0],
+          pot: gwei(100).toNumber(),
+          unit: etherToken.address,
+          endDate: currentTime + 100,
+          judges: [accounts[1], accounts[2]],
+        }),
+        preparePledge({
+          creator: accounts[0],
+          pot: gwei(50).toNumber(),
+          unit: etherToken.address,
+          endDate: currentTime + 100,
+          judges: [accounts[2]],
+        }),
+        preparePledge({
+          creator: accounts[1],
+          pot: gwei(50).toNumber(),
+          unit: ADDRESS_ZERO,
+          endDate: currentTime + 100,
+          judges: [accounts[0], accounts[2]],
+        }),
+      ])
+
+      await Promise.all(pledgeInputs.map(p => createPledge(p, {
+        from: p.creator,
+        value: (p.unit === ADDRESS_ZERO ? p.pot : 0)
+      })))
+
+      // get balances
+      const pledge1Balance = (await controller.pledges(1)).balance.toNumber()
+      const pledge2Balance = (await controller.pledges(2)).balance.toNumber()
+      const pledge3Balance = (await controller.pledges(3)).balance.toNumber()
+
+      // skip past end time
+      await web3EvmIncreaseTime(web3, 100)
+      // fail the second pledge
+      await controller.judgePledge(2, false, { from: accounts[2] }).should.be.fulfilled
+      // (almost) fail the third plege
+      await controller.judgePledge(3, false, { from: accounts[0] }).should.be.fulfilled
+
+      // now check balance
+      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(0)
+      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(0)
+
+      // now properly fail the third pledge
+      await controller.judgePledge(3, false, { from: accounts[2] }).should.be.fulfilled
+
+      // wait till withdrawable period
+      await web3EvmIncreaseTime(web3, judgementPeriodSeconds)
+
+      // check balances
+      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(pledge1Balance)
+      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2)
+
+      // now withdraw
+      const pre1 = (await etherToken.balanceOf(accounts[0])).toNumber()
+      await controller.withdraw(etherToken.address, { from: accounts[0] })
+      const post1 = (await etherToken.balanceOf(accounts[0])).toNumber()
+      expect(post1 - pre1).to.eq(pledge1Balance)
+
+      const pre2 = (await getBalance(accounts[0]))
+      const ret = await controller.withdraw(ADDRESS_ZERO, { from: accounts[0] })
+      const gasUsed = gwei(ret.receipt.gasUsed).toWei()
+      const post2 = (await getBalance(accounts[0]))
+      expect(post2.sub(pre2).add(gasUsed).toNumber()).to.eq(pledge3Balance / 2)
+
+      // now check balances again
+      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(0)
+      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(0)
     })
   })
 })

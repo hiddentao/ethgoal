@@ -11,6 +11,7 @@
     "devnet": "ganache-cli -a 10 -m 'funny door sample enrich female wedding stereo crane setup shop dwarf dismiss'",
     "truffle": "babel-node node_modules/.bin/truffle",
     "test": "yarn truffle test --network test",
+    "coverage": "rm -rf coverage && yarn truffle run coverage && istanbul report lcov",
     "compile": "yarn truffle compile --network test",
     "deploy:local": "yarn truffle migrate --network test"
   },
@@ -34,7 +35,7 @@
     "js-sha3": "^0.8.0",
     "lodash": "^4.17.15",
     "solhint": "^2.3.0",
-    "solidity-coverage": "^0.7.1",
+    "solidity-coverage": "^0.7.2",
     "truffle": "^5.1.10",
     "truffle-hdwallet-provider": "^1.0.17",
     "web3": "^1.2.5",
