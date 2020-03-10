@@ -1,16 +1,17 @@
 pragma solidity >=0.6.1;
 
-import "./base/Ownable.sol";
-import "./base/SafeMath.sol";
-import "./base/ECDSA.sol";
-import "./base/IERC20.sol";
+import "./Ownable.sol";
+import "./SafeMath.sol";
+import "./IBank.sol";
+import "./ECDSA.sol";
+import "./IERC20.sol";
+import "./SettingsControl.sol";
+import "./IController.sol";
 
-contract Controller is Ownable {
+contract Controller is Ownable, SettingsControl, IController {
     using SafeMath for *;
 
-    address private bank;
     bool private locked;
-    uint private fee;
     uint private judgementPeriod;
 
     struct Judgement {
@@ -31,14 +32,13 @@ contract Controller is Ownable {
         uint numFailedJudgements;
         uint pot;
         uint balance;
-        address unit;
         uint endDate;
     }
     mapping (uint => Pledge) private pledges;
     uint private pledgesCount;
 
     struct User {
-        mapping (address => uint) balances;
+        uint balance;
         mapping (uint => uint) pledgesCreated;
         uint numPledgesCreated;
         uint oldestActiveCreatedPledgeIndex;
@@ -54,17 +54,11 @@ contract Controller is Ownable {
     event Locked(address indexed caller);
     event Unlocked(address indexed caller);
 
-    constructor (uint _fee, uint _judgementPeriod) public {
-        bank = address(this);
-        fee = _fee;
-        judgementPeriod = _judgementPeriod;
-    }
-
     modifier canJudge(uint _pledgeId) {
         // ensure contract is not locked
         require(!locked, 'contract locked');
         // ensure that pledge is ready to be judged
-        require(pledgeJudgeable(_pledgeId), 'not judgeable');
+        require(isPledgeJudgeable(_pledgeId), 'not judgeable');
         // ensure the caller is a judge
         require(pledges[_pledgeId].isJudge[msg.sender], 'must be a judge');
         // ensure that user hasn't already judged
@@ -78,15 +72,18 @@ contract Controller is Ownable {
         _;
     }
 
+    constructor (address _settings, uint _judgementPeriod) public SettingsControl(_settings) Ownable() {
+        judgementPeriod = _judgementPeriod;
+    }
+
     function createPledge(
       uint _potAmount,
-      address _potUnit,
       uint _endDate,
       uint _numJudges,
       bytes memory _judgeSig0,
       bytes memory _judgeSig1,
       bytes memory _judgeSig2
-    ) public payable canCreate returns (uint) {
+    ) public override canCreate returns (uint) {
         require(_numJudges >= 1, 'atleast 1 judge needed');
         require(_numJudges <= 3, 'max 3 judges allowed');
         require(_endDate > now, 'end date must be in future');
@@ -99,7 +96,6 @@ contract Controller is Ownable {
 
         // create pledge
         pledges[pledgeId].creator = msg.sender;
-        pledges[pledgeId].unit = _potUnit;
         pledges[pledgeId].endDate = _endDate;
         pledges[pledgeId].pot = _potAmount;
 
@@ -113,7 +109,7 @@ contract Controller is Ownable {
         sigs[1] = _judgeSig1;
         sigs[2] = _judgeSig2;
 
-        bytes32 fingerPrint = calculatePledgeFingerprint(msg.sender, _potAmount, _potUnit, _endDate, _numJudges);
+        bytes32 fingerPrint = calculatePledgeFingerprint(msg.sender, _potAmount, _endDate, _numJudges);
 
         for (uint i = 0; i < _numJudges; i += 1) {
           // get judge address
@@ -133,23 +129,15 @@ contract Controller is Ownable {
         }
 
         // take fee from pot
-        users[bank].balances[_potUnit] = users[bank].balances[_potUnit].add(_potAmount.div(fee));
-        pledges[pledgeId].balance = _potAmount.sub(_potAmount.div(fee));
+        pledges[pledgeId].balance = _potAmount;
 
-        // finally, do the transfer
-        if (_potUnit != address(0)) {
-            IERC20 tkn = IERC20(_potUnit);
-            require(tkn.balanceOf(msg.sender) >= _potAmount, 'not enough token balance');
-            require(tkn.allowance(msg.sender, bank) >= _potAmount, 'need approval');
-            require(IERC20(_potUnit).transferFrom(msg.sender, bank, _potAmount), 'transfer failed');
-        } else {
-            require(msg.value >= _potAmount, 'not enough ETH');
-        }
+        // do the transfer
+        settings().getBank().deposit(msg.sender, _potAmount);
 
         emit NewPledge(pledgeId);
     }
 
-    function judgePledge(uint _pledgeId, bool _result) public canJudge(_pledgeId) {
+    function judgePledge(uint _pledgeId, bool _result) public override canJudge(_pledgeId) {
         // inc. counter (judgement ids start from 1)
         judgementsCount += 1;
 
@@ -171,31 +159,27 @@ contract Controller is Ownable {
 
 
         // if enough negative judgements then close pledge right now
-        if (pledgeFailed(_pledgeId)) {
+        if (isPledgeFailed(_pledgeId)) {
             payoutPledgePot(_pledgeId);
         }
 
         emit NewJudgement(judgementId);
     }
 
-    function withdraw (address _unit) public {
+    function withdraw () public override {
         updateBalances(msg.sender);
-        withdrawBalance(msg.sender, msg.sender, _unit);
+        withdrawBalance(msg.sender);
         emit Withdraw(msg.sender);
     }
 
-    function withdrawAdminFee (address _unit) public onlyOwner {
-        withdrawBalance(bank, msg.sender, _unit);
-    }
-
-    function lock () public onlyOwner {
+    function lock () public override onlyOwner {
         if (!locked) {
             locked = true;
             emit Locked(msg.sender);
         }
     }
 
-    function unlock () public onlyOwner {
+    function unlock () public override onlyOwner {
         if (locked) {
             locked = false;
             emit Unlocked(msg.sender);
@@ -204,126 +188,89 @@ contract Controller is Ownable {
 
     /// Read-only functions ///
 
-    function pledgeJudgeable (uint _pledgeId) public view returns (bool) {
-        if (now < pledges[_pledgeId].endDate) {
-            return false;
-        }
-
-        uint diff = now - pledges[_pledgeId].endDate;
-
-        return (diff >= 0) && (diff <= judgementPeriod);
-    }
-
-    function pledgeWithdrawable (uint _pledgeId) public view returns (bool) {
-        if (now < pledges[_pledgeId].endDate) {
-            return false;
-        }
-
-        return (now - pledges[_pledgeId].endDate) > judgementPeriod;
-    }
-
-    function pledgeFailed (uint _pledgeId) public view returns (bool) {
-        return (pledges[_pledgeId].numFailedJudgements > (pledges[_pledgeId].numJudges / 2));
-    }
-
     function calculatePledgeFingerprint(
       address _creator,
       uint _potAmount,
-      address _potUnit,
       uint _endDate,
       uint _numJudges
-    ) public pure returns (bytes32) {
-      return keccak256(abi.encodePacked(_creator, _potAmount, _potUnit, _endDate, _numJudges));
+    ) public override pure returns (bytes32) {
+      return keccak256(abi.encodePacked(_creator, _potAmount, _endDate, _numJudges));
     }
 
     function getTime() public view returns (uint) {
         return now;
     }
 
-    function getUserBalance(address _user, address _unit) public view returns (uint) {
-        User storage u = users[_user];
-
-        uint b1 = u.balances[_unit];
-
-        for (uint i = u.oldestActiveCreatedPledgeIndex; i < u.numPledgesCreated; i += 1) {
-            b1 = b1.add(calculatePledgePayout(u.pledgesCreated[i], _user, _unit));
-        }
-
-        for (uint j = u.oldestActiveJudgedPledgeIndex; j < u.numPledgesJudged; j += 1) {
-            b1 = b1.add(calculatePledgePayout(u.pledgesJudged[j], _user, _unit));
-        }
-
-        return b1;
-    }
-
-    function getPledgeJudge(uint _pledgeId, uint _judgeIndex) public view returns (address) {
+    function getPledgeJudge(uint _pledgeId, uint _judgeIndex) public override view returns (address) {
         return pledges[_pledgeId].judges[_judgeIndex];
     }
 
-    function getPledgeJudgement(uint _pledgeId, address _judge) public view returns (uint) {
+    function getPledgeJudgement(uint _pledgeId, address _judge) public override view returns (uint) {
         return pledges[_pledgeId].judgements[_judge];
     }
 
-    function isLocked() public view returns (bool) {
+    function isLocked() public override view returns (bool) {
       return locked;
     }
 
-    function getBank() public view returns (address) {
-      return bank;
-    }
-
-    function getNumPledges() public view returns (uint) {
+    function getNumPledges() public override view returns (uint) {
       return pledgesCount;
     }
 
-    function getNumJudgements() public view returns (uint) {
+    function getNumJudgements() public override view returns (uint) {
       return judgementsCount;
     }
 
-    function getPledge(uint _index) public view returns (
-        address creator,
-        uint numJudges,
-        uint numJudgements,
-        uint numFailedJudgements,
-        uint pot,
-        uint balance,
-        address unit,
-        uint endDate
+    function getPledge(uint _index) public override view returns (
+        address creator_,
+        uint numJudges_,
+        uint numJudgements_,
+        uint numFailedJudgements_,
+        uint pot_,
+        uint balance_,
+        uint endDate_,
+        bool failed_,
+        bool withdrawable_,
+        bool judgeable_
     ) {
         Pledge storage p = pledges[_index];
 
-        creator = p.creator;
-        numJudges = p.numJudges;
-        numJudgements = p.numJudgements;
-        numFailedJudgements = p.numFailedJudgements;
-        pot = p.pot;
-        balance = p.balance;
-        unit = p.unit;
-        endDate = p.endDate;
+        creator_ = p.creator;
+        numJudges_ = p.numJudges;
+        numJudgements_ = p.numJudgements;
+        numFailedJudgements_ = p.numFailedJudgements;
+        pot_ = p.pot;
+        balance_ = p.balance;
+        endDate_ = p.endDate;
+        failed_ = isPledgeFailed(_index);
+        withdrawable_ = isPledgeWithdrawable(_index);
+        judgeable_ = isPledgeJudgeable(_index);
     }
 
-    function getJudgement(uint _index) public view returns (
-        address judge,
-        uint pledgeId,
-        bool passed
+    function getJudgement(uint _index) public override view returns (
+        address judge_,
+        uint pledgeId_,
+        bool passed_
     ) {
         Judgement storage j = judgements[_index];
-        judge = j.judge;
-        pledgeId = j.pledgeId;
-        passed = j.passed;
+        judge_ = j.judge;
+        pledgeId_ = j.pledgeId;
+        passed_ = j.passed;
     }
 
-    function getUser(address _user) public view returns (
-        uint numPledgesCreated,
-        uint oldestActiveCreatedPledgeIndex,
-        uint numPledgesJudged,
-        uint oldestActiveJudgedPledgeIndex
+    function getUser(address _user) public override view returns (
+        uint balance_,
+        uint numPledgesCreated_,
+        uint oldestActiveCreatedPledgeIndex_,
+        uint numPledgesJudged_,
+        uint oldestActiveJudgedPledgeIndex_
     ) {
         User storage u = users[_user];
-        numPledgesCreated = u.numPledgesCreated;
-        oldestActiveCreatedPledgeIndex = u.oldestActiveCreatedPledgeIndex;
-        numPledgesJudged = u.numPledgesJudged;
-        oldestActiveJudgedPledgeIndex = u.oldestActiveJudgedPledgeIndex;
+        balance_ = calculateUserBalance(_user);
+        numPledgesCreated_ = u.numPledgesCreated;
+        oldestActiveCreatedPledgeIndex_ = u.oldestActiveCreatedPledgeIndex;
+        numPledgesJudged_ = u.numPledgesJudged;
+        oldestActiveJudgedPledgeIndex_ = u.oldestActiveJudgedPledgeIndex;
     }
 
 
@@ -334,34 +281,28 @@ contract Controller is Ownable {
         Pledge storage p = pledges[_pledgeId];
 
         // failed?
-        if (pledgeFailed(_pledgeId)) {
+        if (isPledgeFailed(_pledgeId)) {
             uint judgeReward = p.balance.div(p.numJudges);
 
             // split amongst judges
             for (uint i = 0; i < p.numJudges; i += 1) {
                 address j = p.judges[i];
-                users[j].balances[p.unit] = users[j].balances[p.unit].add(judgeReward);
+                users[j].balance = users[j].balance.add(judgeReward);
             }
         }
         // passed?
         else {
-            users[p.creator].balances[p.unit] = users[p.creator].balances[p.unit].add(p.balance);
+            users[p.creator].balance = users[p.creator].balance.add(p.balance);
         }
 
         p.balance = 0;
     }
 
-    function withdrawBalance (address _user, address payable _recipient, address _unit) internal {
+    function withdrawBalance (address _user) internal {
         // checks-effects-interaction pattern for re-entrancy protection
-        uint amount = users[_user].balances[_unit];
-        users[_user].balances[_unit] = 0;
-
-        if (_unit == address(0)) {
-            (bool success, ) = _recipient.call.value(amount)("");
-            require(success, "transfer failed");
-        } else {
-            IERC20(_unit).transfer(_recipient, amount);
-        }
+        uint amount = users[_user].balance;
+        users[_user].balance = 0;
+        settings().getBank().withdraw(_user, amount);
     }
 
 
@@ -372,7 +313,7 @@ contract Controller is Ownable {
             uint pledgeId = u.pledgesCreated[i];
             Pledge storage p = pledges[pledgeId];
             // if pledge pot yet to be redistributed
-            if (p.pot > 0 && pledgeWithdrawable(pledgeId)) {
+            if (p.pot > 0 && isPledgeWithdrawable(pledgeId)) {
                 payoutPledgePot(pledgeId);
                 u.oldestActiveCreatedPledgeIndex += 1;
             }
@@ -382,7 +323,7 @@ contract Controller is Ownable {
             uint pledgeId = u.pledgesJudged[i];
             Pledge storage p = pledges[pledgeId];
             // if pledge pot yet to be redistributed
-            if (p.pot > 0 && pledgeWithdrawable(pledgeId)) {
+            if (p.pot > 0 && isPledgeWithdrawable(pledgeId)) {
                 payoutPledgePot(pledgeId);
                 u.oldestActiveJudgedPledgeIndex += 1;
             }
@@ -399,10 +340,26 @@ contract Controller is Ownable {
     }
 
 
-    function calculatePledgePayout(uint _pledgeId, address _user, address _unit) internal view returns (uint) {
+    function calculateUserBalance(address _user) internal view returns (uint) {
+        User storage u = users[_user];
+
+        uint b1 = u.balance;
+
+        for (uint i = u.oldestActiveCreatedPledgeIndex; i < u.numPledgesCreated; i += 1) {
+            b1 = b1.add(calculatePledgePayout(u.pledgesCreated[i], _user));
+        }
+
+        for (uint j = u.oldestActiveJudgedPledgeIndex; j < u.numPledgesJudged; j += 1) {
+            b1 = b1.add(calculatePledgePayout(u.pledgesJudged[j], _user));
+        }
+
+        return b1;
+    }
+
+    function calculatePledgePayout(uint _pledgeId, address _user) internal view returns (uint) {
         Pledge storage p = pledges[_pledgeId];
 
-        if (p.balance == 0 || p.unit != _unit || !pledgeWithdrawable(_pledgeId)) {
+        if (p.balance == 0 || !isPledgeWithdrawable(_pledgeId)) {
             return 0;
         }
 
@@ -410,7 +367,7 @@ contract Controller is Ownable {
             return 0;
         }
 
-        if (pledgeFailed(_pledgeId)) {
+        if (isPledgeFailed(_pledgeId)) {
             if (p.creator != _user) {
                 return p.balance.div(p.numJudges);
             } else {
@@ -425,4 +382,25 @@ contract Controller is Ownable {
         }
     }
 
+    function isPledgeJudgeable (uint _pledgeId) internal view returns (bool) {
+        if (now < pledges[_pledgeId].endDate) {
+            return false;
+        }
+
+        uint diff = now - pledges[_pledgeId].endDate;
+
+        return (diff >= 0) && (diff <= judgementPeriod);
+    }
+
+    function isPledgeWithdrawable (uint _pledgeId) internal view returns (bool) {
+        if (now < pledges[_pledgeId].endDate) {
+            return false;
+        }
+
+        return (now - pledges[_pledgeId].endDate) > judgementPeriod;
+    }
+
+    function isPledgeFailed (uint _pledgeId) internal view returns (bool) {
+        return (pledges[_pledgeId].numFailedJudgements > (pledges[_pledgeId].numJudges / 2));
+    }
 }

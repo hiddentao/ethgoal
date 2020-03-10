@@ -1,12 +1,15 @@
 pragma solidity >=0.6.1;
 
-import "./base/IERC20.sol";
-import "./base/SafeMath.sol";
+import "./SafeMath.sol";
+import "./IERC20.sol";
+import "./IMintableToken.sol";
 
 /**
- * Represents Wrapped ETH, see https://blog.0xproject.com/canonical-weth-a9aa7d0279dd
+ * A simple ERC20 token with minting ability.
+ *
+ * This is modified
  */
-contract EtherToken is IERC20 {
+contract MintableToken is IERC20, IMintableToken {
   using SafeMath for *;
 
   mapping (address => uint256) private balances;
@@ -14,12 +17,14 @@ contract EtherToken is IERC20 {
   uint8 public constant override decimals = 18;
   uint256 public override totalSupply;
 
+  constructor () public {}
+
   function name() external view override returns (string memory) {
-    return "EthGoals Wrapped Ether";
+    return "EthGoals Token";
   }
 
   function symbol() external view override returns (string memory) {
-    return "ETHGOALS_ETH";
+    return "ETHGOAL";
   }
 
   function balanceOf(address account) public view override returns (uint256) {
@@ -61,15 +66,8 @@ contract EtherToken is IERC20 {
       emit Approval(owner, spender, amount);
   }
 
-  function deposit() public payable {
-      balances[msg.sender] = balances[msg.sender].add(msg.value);
-      totalSupply = totalSupply.add(msg.value);
-  }
-
-  function withdraw(uint value) public {
-      // Balance covers value
-      balances[msg.sender] = balances[msg.sender].sub(value, 'EtherToken: insufficient balance');
-      totalSupply = totalSupply.sub(value);
-      msg.sender.transfer(value);
+  function mint(uint256 _amount) public override {
+      balances[msg.sender] += _amount;
+      totalSupply += _amount;
   }
 }

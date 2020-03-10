@@ -1,6 +1,6 @@
 pragma solidity >=0.6.1;
 
-import '../base/Proxy.sol';
+import '../Proxy.sol';
 import './AbstractTestProxyBase.sol';
 
 contract TestProxy is AbstractTestProxyBase, Proxy {

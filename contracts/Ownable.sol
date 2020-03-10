@@ -1,23 +1,25 @@
 pragma solidity >=0.6.1;
 
+import "./EternalStorage.sol";
+
 /**
  * Based on https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/master/contracts/ownership/Ownable.sol
  */
-contract Ownable {
+contract Ownable is EternalStorage {
     address private _owner;
 
     /**
      * @dev Initializes the contract setting the deployer as the initial owner.
      */
     constructor () internal {
-        _owner = msg.sender;
+        dataAddress["owner"] = msg.sender;
     }
 
     /**
      * @dev Returns the address of the current owner.
      */
     function owner() public view returns (address) {
-        return _owner;
+        return dataAddress["owner"];
     }
 
     /**
@@ -32,6 +34,6 @@ contract Ownable {
      * @dev Returns true if the caller is the current owner.
      */
     function isOwner() public view returns (bool) {
-        return msg.sender == _owner;
+        return msg.sender == dataAddress["owner"];
     }
 }

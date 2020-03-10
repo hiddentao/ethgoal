@@ -7,7 +7,7 @@ import "./EternalStorage.sol";
 /*
 Based on https://github.com/zeppelinos/labs/blob/master/upgradeability_using_eternal_storage/contracts
 */
-contract Proxy is EternalStorage, Ownable {
+contract Proxy is Ownable {
   /**
   * @dev This event will be emitted every time the implementation gets upgraded
   * @param implementation representing the address of the upgraded implementation
@@ -17,7 +17,7 @@ contract Proxy is EternalStorage, Ownable {
   /**
    * Constructor.
    */
-  constructor (address _implementation) public {
+  constructor (address _implementation) Ownable() public {
     require(_implementation != address(0), 'implementation must be valid');
     dataAddress["impl"] = _implementation;
   }
@@ -35,6 +35,7 @@ contract Proxy is EternalStorage, Ownable {
    * This is internal so that descendants can control access to this in custom ways.
    */
   function setImplementation(address _implementation) public onlyOwner {
+    require(!dataBool["implFrozen"], 'implementation already frozen');
     require(_implementation != address(0), 'implementation must be valid');
     require(_implementation != dataAddress["impl"], 'already this implementation');
 
@@ -43,6 +44,13 @@ contract Proxy is EternalStorage, Ownable {
     dataAddress["impl"] = _implementation;
 
     emit Upgraded(_implementation, version);
+  }
+
+  /**
+   * @dev Freeze the current implementation, disallowing future implementation changes.
+   */
+  function freezeImplementation() public onlyOwner {
+    dataBool["implFrozen"] = true;
   }
 
   /**
@@ -64,5 +72,9 @@ contract Proxy is EternalStorage, Ownable {
       case 0 { revert(ptr, size) }
       default { return(ptr, size) }
     }
+  }
+
+  receive() external payable {
+    revert('not supported');
   }
 }

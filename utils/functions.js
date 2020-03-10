@@ -9,9 +9,9 @@ export const deploy = async (deployer, Contract, ...constructorArgs) => {
   }
 }
 
-export const createLog = logger => {
-  if (logger) {
-    return msg => logger(msg)
+export const createLog = enableLogger => {
+  if (enableLogger) {
+    return msg => console.log(chalk.blue(msg))
   } else {
     return msg => () => {}
   }

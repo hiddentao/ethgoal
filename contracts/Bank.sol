@@ -1,7 +1,8 @@
 pragma solidity >=0.6.1;
 
-import "./base/Proxy.sol";
+import "./Proxy.sol";
+import "./SettingsControl.sol";
 
-contract Bank is Proxy {
-  constructor (address _impl) Proxy(_impl) public {}
+contract Bank is Proxy, SettingsControl {
+  constructor (address _settings, address _impl) SettingsControl(_settings) Proxy(_impl) public {}
 }
