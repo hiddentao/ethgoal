@@ -1,6 +1,7 @@
-import { sha3 } from './utils/web3'
-import { ADDRESS_ZERO, hdWallet } from './utils'
+const { ADDRESS_ZERO, extractEventArgs } = require('./utils')
+const { events } = require('../')
 
+const IProxyImpl = artifacts.require("./IProxyImpl")
 const TestProxy = artifacts.require("./test/TestProxy")
 const ITestProxyImpl = artifacts.require("./test/ITestProxyImpl")
 const TestProxyImpl1 = artifacts.require("./test/TestProxyImpl1")
@@ -10,6 +11,7 @@ contract('Proxy', accounts => {
   let testProxy
   let testProxyImpl1
   let testProxyImpl2
+  let proxyImpl
   let int
 
   beforeEach(async () => {
@@ -17,11 +19,13 @@ contract('Proxy', accounts => {
     testProxyImpl2 = await TestProxyImpl2.new()
     testProxy = await TestProxy.new(testProxyImpl1.address)
     int = await ITestProxyImpl.at(testProxy.address)
+    proxyImpl = await IProxyImpl.at(testProxy.address)
   })
 
   it('default implementation works', async () => {
     await testProxy.owner().should.eventually.eq(accounts[0])
     await int.getValue().should.eventually.eq(124)
+    await proxyImpl.getImplementationVersion().should.eventually.eq('test1')
   })
 
   it('cannot be upgraded to zero address', async () => {
@@ -39,5 +43,15 @@ contract('Proxy', accounts => {
   it('can be upgraded if the owner and a new implementation', async () => {
     await testProxy.setImplementation(testProxyImpl2.address).should.be.fulfilled
     await int.getValue().should.eventually.eq(125)
+    await proxyImpl.getImplementationVersion().should.eventually.eq('test2')
+  })
+
+  it('and emits an event', async () => {
+    const ret = await testProxy.setImplementation(testProxyImpl2.address).should.be.fulfilled
+
+    expect(extractEventArgs(ret, events.Upgraded)).to.include({
+      implementation: testProxyImpl2.address,
+      version: 'test2'
+    })
   })
 })

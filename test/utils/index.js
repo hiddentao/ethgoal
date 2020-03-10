@@ -9,8 +9,6 @@ import { toBN, isBN } from '../../utils/web3'
 
 import EthVal from 'ethval'
 
-const Controller = artifacts.require('./Controller')
-
 export const MNEMONIC = (packageJson.scripts.devnet.match(/\'(.+)\'/))[1]
 console.log(`Mnemonic: ${MNEMONIC}`)
 
@@ -80,15 +78,6 @@ export const BYTES32_ZERO = '0x0000000000000000000000000000000000000000000000000
 export const getBalance = async addr => toBN(await web3.eth.getBalance(addr))
 
 export const mulBN = (bn, factor) => bn.mul(toBN(factor * 1000)).div(toBN(1000))
-
-export const events = [ Controller ].reduce((output, contract) => {
-  contract.abi.filter(({ type, name }) => type === 'event').forEach(e => {
-    if (!output[e.name]) {
-      output[e.name] = e
-    }
-  })
-  return output
-}, {})
 
 export const parseEvents = (result, e) => {
   return parseLog(result.receipt.rawLogs, [e])

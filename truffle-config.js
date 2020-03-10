@@ -1,5 +1,5 @@
-let mnemonic = 'notset'
-let infuraKey = 'notset'
+let mnemonic = process.env.MNEMONIC
+let infuraKey = process.env.INFURA_KEY
 
 try {
   ; ({ mnemonic, infuraKey } = require('./.deployment.js'))

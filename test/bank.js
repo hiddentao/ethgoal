@@ -1,4 +1,5 @@
-const { ADDRESS_ZERO } = require('./utils')
+const { ADDRESS_ZERO, extractEventArgs } = require('./utils')
+const { events } = require('../')
 
 import { ensureSettingsIsDeployed } from '../migrations/modules/settings'
 import { ensureMintableTokenIsDeployed } from '../migrations/modules/mintableToken'
@@ -113,7 +114,11 @@ contract('Bank', accounts => {
       await bank.deposit(accounts[0], 4)
       await bank.deposit(accounts[0], 3)
 
-      await bank.getProfit().should.eventually.eq(15)
+      const ret = await bank.emitProfit()
+
+      expect(extractEventArgs(ret, events.Profit)).to.include({
+        amount: '15'
+      })
     })
   })
 })

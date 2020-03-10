@@ -1,9 +1,9 @@
 {
-  "name": "ethgoal.io",
+  "name": "ethgoal-contracts",
   "version": "1.0.0",
   "private": true,
-  "description": "ethgoal.io",
-  "main": "truffle-config.js",
+  "description": "ethgoal contracts",
+  "main": "index.js",
   "directories": {
     "test": "test"
   },
@@ -12,8 +12,8 @@
     "truffle": "babel-node node_modules/.bin/truffle",
     "test": "yarn truffle test --network test",
     "coverage": "rm -rf coverage && yarn truffle run coverage && istanbul report lcov",
-    "compile": "yarn truffle compile --network test",
-    "deploy:local": "yarn truffle migrate --network test"
+    "compile": "yarn truffle compile --network test && ./scripts/generateIndex.js",
+    "deploy:local": "yarn compile && yarn truffle migrate --network test"
   },
   "repository": {
     "type": "git",
@@ -32,6 +32,7 @@
     "ethereum-event-logs": "^1.3.1",
     "ethval": "^2.0.0",
     "ganache-cli": "^6.8.2",
+    "glob": "^7.1.6",
     "js-sha3": "^0.8.0",
     "lodash": "^4.17.15",
     "solhint": "^2.3.0",
