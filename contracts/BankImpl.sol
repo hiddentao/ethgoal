@@ -43,12 +43,12 @@ contract BankImpl is IBank, SettingsControl, Ownable, IProxyImpl {
     return dataUint256["userDepositTotal"];
   }
 
-  function getInterest() public override returns (uint) {
+  function getProfit() public override returns (uint) {
     return settings().getChai().dai(address(this)) - getUserDepositTotal();
   }
 
-  function withdrawInterest() public override onlyOwner {
-    uint amount = getInterest();
+  function withdrawProfit() public override onlyOwner {
+    uint amount = getProfit();
     // chai -> bank
     settings().getChai().draw(address(this), amount);
     // bank -> sender

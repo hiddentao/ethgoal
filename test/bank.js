@@ -72,29 +72,48 @@ contract('Bank', accounts => {
     })
   })
 
-  // describe('deposits', () => {
-  //   it('need token authorization', async () => {
-  //     await bank.deposit(accounts[0], 1).should.be.rejectedWith('exceeds allowance')
-  //   })
+  describe('deposits', () => {
+    it('need token authorization', async () => {
+      await bank.deposit(accounts[0], 1).should.be.rejectedWith('exceeds allowance')
+    })
 
-  //   it('need enough balance', async () => {
-  //     await mintableToken.approve(bank.address, 1)
-  //     await bank.deposit(accounts[0], 1).should.be.rejectedWith('exceeds allowance')
-  //   })
+    it('need enough balance', async () => {
+      await mintableToken.approve(bank.address, 1)
+      await bank.deposit(accounts[0], 1).should.be.rejectedWith('exceeds balance')
+    })
 
-  //   it('work', async () => {
-  //     await mintableToken.mint(1)
-  //     await mintableToken.approve(bank.address, 1)
-  //     await bank.deposit(accounts[0], 1).should.be.fulfilled
-  //   })
+    it('work', async () => {
+      await mintableToken.mint(1)
+      await mintableToken.approve(bank.address, 1)
+      await bank.deposit(accounts[0], 1).should.be.fulfilled
+    })
 
-  //   it('get sent to chai', async () => {
-  //     await mintableToken.mint(1)
-  //     await mintableToken.approve(bank.address, 1)
-  //     await bank.deposit(accounts[0], 1)
+    it('get sent to chai', async () => {
+      await mintableToken.mint(1)
+      await mintableToken.approve(bank.address, 1)
+      await bank.deposit(accounts[0], 1)
 
-  //     await mintableToken.balanceOf(bank.address).should.eventually.eq(0)
-  //     await mintableToken.balanceOf(chai.address).should.eventually.eq(6)
-  //   })
-  // })
+      await mintableToken.balanceOf(bank.address).should.eventually.eq(0)
+      await mintableToken.balanceOf(chai.address).should.eventually.eq(6)
+    })
+
+    it('increment the deposit total', async () => {
+      await mintableToken.mint(5)
+      await mintableToken.approve(bank.address, 5)
+      await bank.deposit(accounts[0], 1)
+      await bank.deposit(accounts[0], 4)
+
+      await bank.getUserDepositTotal().should.eventually.eq(5)
+    })
+
+    it('result in bank profit', async () => {
+      await mintableToken.mint(100)
+      await mintableToken.approve(bank.address, 100)
+      await bank.deposit(accounts[0], 1)
+      await bank.deposit(accounts[0], 4)
+      await bank.deposit(accounts[0], 3)
+
+      await bank.getProfit().should.eventually.eq(15)
+    })
+  })
 })
