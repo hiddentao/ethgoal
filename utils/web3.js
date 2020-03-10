@@ -11,4 +11,4 @@ const web3 = require('web3')
     exports[m] = web3.utils[m]
   })
 
-exports.sha3 = a => `0x${keccak256(a)}`
+exports.keccak256 = a => `0x${keccak256(a)}`

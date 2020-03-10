@@ -4,5 +4,5 @@ import "./Proxy.sol";
 import "./SettingsControl.sol";
 
 contract Bank is Proxy, SettingsControl {
-  constructor (address _settings, address _impl) SettingsControl(_settings) Proxy(_impl) public {}
+  constructor (address _impl, address _settings) SettingsControl(_settings) Proxy(_impl) public {}
 }

@@ -46,21 +46,21 @@ contract MintableToken is IERC20, IMintableToken {
   }
 
   function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
-      _approve(sender, msg.sender, allowances[sender][msg.sender].sub(amount, "EtherToken: transfer amount exceeds allowance"));
+      _approve(sender, msg.sender, allowances[sender][msg.sender].sub(amount, "transfer amount exceeds allowance"));
       _transfer(sender, recipient, amount);
       return true;
   }
 
   function _transfer(address sender, address recipient, uint256 amount) internal {
-      require(recipient != address(0), "EtherToken: transfer to the zero address");
+      require(recipient != address(0), "transfer to the zero address");
 
-      balances[sender] = balances[sender].sub(amount, "EtherToken: transfer amount exceeds balance");
+      balances[sender] = balances[sender].sub(amount, "transfer amount exceeds balance");
       balances[recipient] = balances[recipient].add(amount);
       emit Transfer(sender, recipient, amount);
   }
 
   function _approve(address owner, address spender, uint256 amount) internal {
-      require(spender != address(0), "EtherToken: approve to the zero address");
+      require(spender != address(0), "approve to the zero address");
 
       allowances[owner][spender] = amount;
       emit Approval(owner, spender, amount);

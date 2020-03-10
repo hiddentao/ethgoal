@@ -5,11 +5,9 @@ import { parseLog } from 'ethereum-event-logs'
 import chaiAsPromised from 'chai-as-promised'
 
 import packageJson from '../../package.json'
-import { toBN, isBN } from './web3'
+import { toBN, isBN } from '../../utils/web3'
 
 import EthVal from 'ethval'
-
-export * from './web3'
 
 const Controller = artifacts.require('./Controller')
 

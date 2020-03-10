@@ -7,17 +7,25 @@ import "./SafeMath.sol";
 import "./IChai.sol";
 import "./IERC20.sol";
 import "./SettingsControl.sol";
+import "./IProxyImpl.sol";
 
-contract BankImpl is IBank, SettingsControl, Ownable {
+contract BankImpl is IBank, SettingsControl, Ownable, IProxyImpl {
   using SafeMath for *;
 
   constructor (address _settings) SettingsControl(_settings) Ownable() public {}
 
+  function getImplementationVersion() public override pure returns (string memory) {
+    return "v1";
+  }
+
   function deposit(address _from, uint _amount) public override {
+    IERC20 token = settings().getPaymentUnit();
     // user -> bank
-    settings().getPaymentUnit().transferFrom(_from, address(this), _amount);
+    token.transferFrom(_from, address(this), _amount);
     // bank -> chai
-    settings().getChai().join(address(this), _amount);
+    IChai chai = settings().getChai();
+    token.approve(address(chai), _amount);
+    chai.join(address(this), _amount);
     // update total
     dataUint256["userDepositTotal"] = dataUint256["userDepositTotal"].add(_amount);
   }

@@ -1,0 +1,100 @@
+const { ADDRESS_ZERO } = require('./utils')
+
+import { ensureSettingsIsDeployed } from '../migrations/modules/settings'
+import { ensureMintableTokenIsDeployed } from '../migrations/modules/mintableToken'
+import { ensureDevChaiIsDeployed } from '../migrations/modules/devChai'
+
+const IBank = artifacts.require("./IBank")
+const Bank = artifacts.require("./Bank")
+const BankImpl = artifacts.require("./BankImpl")
+const TestProxyImpl1 = artifacts.require("./test/TestProxyImpl1")
+const IProxyImpl = artifacts.require('./IProxyImpl')
+
+contract('Bank', accounts => {
+  let settings
+  let mintableToken
+  let chai
+
+  let proxyImpl
+  let bankImpl
+  let bankProxy
+  let bank
+
+  beforeEach(async () => {
+    settings = await ensureSettingsIsDeployed({ artifacts })
+    mintableToken = await ensureMintableTokenIsDeployed({ artifacts }, settings.address)
+    await settings.setPaymentUnit(mintableToken.address)
+
+    chai = await ensureDevChaiIsDeployed({ artifacts }, settings.address)
+    await settings.setChai(chai.address)
+
+    bankImpl = await BankImpl.new(settings.address)
+    bankProxy = await Bank.new(bankImpl.address, settings.address)
+    proxyImpl = await IProxyImpl.at(bankProxy.address)
+    bank = await IBank.at(bankProxy.address)
+  })
+
+  it('must be deployed with a valid implementation', async () => {
+    await Bank.new(ADDRESS_ZERO, settings.address).should.be.rejectedWith('implementation must be valid')
+  })
+
+  it('can be deployed', async () => {
+    expect(bankProxy.address).to.exist
+  })
+
+  it('can return its implementation version', async () => {
+    await proxyImpl.getImplementationVersion().should.eventually.eq('v1')
+  })
+
+  describe('it can be upgraded', async () => {
+    let impl2
+
+    beforeEach(async () => {
+      // deploy new implementation
+      impl2 = await TestProxyImpl1.new()
+    })
+
+    it('but not just by anyone', async () => {
+      await bankProxy.setImplementation(impl2.address, { from: accounts[1] }).should.be.rejectedWith('not the owner')
+    })
+
+    it('but not to an empty address', async () => {
+      await bankProxy.setImplementation(ADDRESS_ZERO).should.be.rejectedWith('implementation must be valid')
+    })
+
+    it.skip('but not to the existing implementation', async () => {
+      await bankProxy.setImplementation(bankImpl.address).should.be.rejectedWith('already this implementation')
+    })
+
+    it('and points to the new implementation', async () => {
+      await bankProxy.setImplementation(impl2.address)
+      await proxyImpl.getImplementationVersion().should.eventually.eq('test1')
+    })
+  })
+
+  // describe('deposits', () => {
+  //   it('need token authorization', async () => {
+  //     await bank.deposit(accounts[0], 1).should.be.rejectedWith('exceeds allowance')
+  //   })
+
+  //   it('need enough balance', async () => {
+  //     await mintableToken.approve(bank.address, 1)
+  //     await bank.deposit(accounts[0], 1).should.be.rejectedWith('exceeds allowance')
+  //   })
+
+  //   it('work', async () => {
+  //     await mintableToken.mint(1)
+  //     await mintableToken.approve(bank.address, 1)
+  //     await bank.deposit(accounts[0], 1).should.be.fulfilled
+  //   })
+
+  //   it('get sent to chai', async () => {
+  //     await mintableToken.mint(1)
+  //     await mintableToken.approve(bank.address, 1)
+  //     await bank.deposit(accounts[0], 1)
+
+  //     await mintableToken.balanceOf(bank.address).should.eventually.eq(0)
+  //     await mintableToken.balanceOf(chai.address).should.eventually.eq(6)
+  //   })
+  // })
+})

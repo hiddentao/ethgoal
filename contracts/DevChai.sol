@@ -2,7 +2,6 @@ pragma solidity >=0.6.1;
 
 import "./IChai.sol";
 import "./SafeMath.sol";
-import "./IERC20.sol";
 import "./IMintableToken.sol";
 import "./SettingsControl.sol";
 import "./Ownable.sol";
@@ -10,44 +9,12 @@ import "./Ownable.sol";
 /**
  * Dev version of Chai
  */
-contract DevChai is SettingsControl, IChai, Ownable, IERC20 {
+contract DevChai is SettingsControl, IChai, Ownable {
   using SafeMath for *;
 
   mapping (address => uint256) private balances;
-  uint8 public constant override decimals = 18;
-  uint256 public override totalSupply;
 
   constructor (address _settings) SettingsControl(_settings) Ownable() public {}
-
-  // IERC20
-
-  function name() external view override returns (string memory) {
-    return "DevChai";
-  }
-
-  function symbol() external view override returns (string memory) {
-    return "DEVCHAI";
-  }
-
-  function balanceOf(address account) public view override returns (uint256) {
-      return balances[account];
-  }
-
-  function transfer(address /*recipient*/, uint256 /*amount*/) public override returns (bool) {
-    revert('not allowed');
-  }
-
-  function allowance(address /*owner*/, address /*spender*/) public view override returns (uint256) {
-    return 0;
-  }
-
-  function approve(address /*spender*/, uint256 /*amount*/) public override returns (bool) {
-    revert('not allowed');
-  }
-
-  function transferFrom(address /*sender*/, address /*recipient*/, uint256 /*amount*/) public override returns (bool) {
-    revert('not allowed');
-  }
 
   // IChai
 
@@ -65,12 +32,14 @@ contract DevChai is SettingsControl, IChai, Ownable, IERC20 {
 
   // withdraw
   function draw(address src, uint wad) override public {
+    IERC20 token = settings().getPaymentUnit();
+
     // check balance
-    require(balances[src] >= wad, 'not enough');
+    require(balances[src] >= wad, 'not enough balance');
     // update balance
     balances[src] = balances[src].sub(wad);
     // give them the exact amount back.
-    settings().getPaymentUnit().transfer(src, wad);
+    token.transfer(src, wad);
   }
 
   // get total DAI
