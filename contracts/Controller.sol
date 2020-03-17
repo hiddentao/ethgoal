@@ -284,7 +284,7 @@ contract Controller is Ownable, SettingsControl, IController {
             return false;
         }
 
-        return (now - pledges[_pledgeId].endDate) > judgementPeriod;
+        return (now - pledges[_pledgeId].endDate) >= judgementPeriod;
     }
 
     function isPledgeFailed (uint _pledgeId) public override view returns (bool) {
