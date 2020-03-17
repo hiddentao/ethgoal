@@ -1,9 +1,20 @@
+const MNEMONIC = (require('./package.json').scripts.devnet.match(/\'(.+)\'/))[1]
+
+console.log(`Mnemonic: [ ${MNEMONIC} ]`)
+
 module.exports = {
-  accounts: 10,
-  testrpcOptions: '-p 8555 -m "funny door sample enrich female wedding stereo crane setup shop dwarf dismiss"',
-  compileCommand: '../node_modules/.bin/truffle compile --network coverage',
-  testCommand: '../node_modules/.bin/babel-node ../node_modules/.bin/truffle test --network coverage',
+  providerOptions: {
+    total_accounts: 10,
+    port: 8555,
+    mnemonic: MNEMONIC,
+  },
+  istanbulFolder: './coverage',
+  istanbulReporter: ['lcov', 'html'],
   skipFiles: [
-    "base/ECDSA.sol",
+    "ECDSA.sol",
+    "IERC20.sol",
+    "SafeMath.sol",
+    "MintableToken.sol",
+    "Migrations.sol"
   ],
 }

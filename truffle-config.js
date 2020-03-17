@@ -1,5 +1,5 @@
-let mnemonic = 'notset'
-let infuraKey = 'notset'
+let mnemonic = process.env.MNEMONIC
+let infuraKey = process.env.INFURA_KEY
 
 try {
   ; ({ mnemonic, infuraKey } = require('./.deployment.js'))
@@ -41,13 +41,13 @@ module.exports = {
       network_id: "*",
       gasPrice: 1000000000      // 1 gwei
     },
-    coverage: {
-      host: "localhost",
-      network_id: "*",
-      port: 8555,
-      gas: 0xfffffffffff, // <-- Use this high gas value
-      gasPrice: 0x01      // <-- Use this low gas price
-    },
+    // coverage: {
+    //   host: "localhost",
+    //   network_id: "*",
+    //   port: 8555,
+    //   gas: 0xfffffffffff, // <-- Use this high gas value
+    //   gasPrice: 0x01      // <-- Use this low gas price
+    // },
   },
 
   mocha: {
@@ -64,5 +64,9 @@ module.exports = {
         }
       }
     }
-  }
+  },
+
+  plugins: [
+    "solidity-coverage"
+  ]
 }

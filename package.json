@@ -1,16 +1,19 @@
 {
-  "name": "ethgoal.io",
+  "name": "ethgoal-contracts",
   "version": "1.0.0",
   "private": true,
-  "description": "ethgoal.io",
-  "main": "truffle-config.js",
+  "description": "ethgoal contracts",
+  "main": "index.js",
   "directories": {
     "test": "test"
   },
   "scripts": {
-    "devnet": "ganache-cli",
-    "compile": "truffle compile",
-    "deploy:local": "truffle migrate"
+    "devnet": "ganache-cli -a 10 -m 'funny door sample enrich female wedding stereo crane setup shop dwarf dismiss'",
+    "truffle": "babel-node node_modules/.bin/truffle",
+    "test": "yarn truffle test --network test",
+    "coverage": "rm -rf coverage && yarn truffle run coverage && istanbul report lcov",
+    "compile": "yarn truffle compile --network test && ./scripts/generateIndex.js",
+    "deploy:local": "yarn compile && yarn truffle migrate --network test"
   },
   "repository": {
     "type": "git",
@@ -23,11 +26,21 @@
   },
   "homepage": "https://github.com/hiddentao/ethgoal.io#readme",
   "devDependencies": {
+    "chai": "^4.2.0",
+    "chai-as-promised": "^7.1.1",
+    "coveralls": "^3.0.9",
+    "eth-hd-wallet": "^0.5.1",
+    "ethereum-event-logs": "^1.3.1",
+    "ethval": "^2.0.0",
     "ganache-cli": "^6.8.2",
+    "glob": "^7.1.6",
+    "js-sha3": "^0.8.0",
+    "lodash": "^4.17.15",
     "solhint": "^2.3.0",
-    "solidity-coverage": "^0.7.1",
+    "solidity-coverage": "^0.7.2",
     "truffle": "^5.1.10",
     "truffle-hdwallet-provider": "^1.0.17",
+    "web3": "^1.2.5",
     "web3-provider-engine": "^15.0.4"
   },
   "dependencies": {
