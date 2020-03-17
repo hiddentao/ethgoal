@@ -29,7 +29,25 @@ On mainnet, when you submit your deposit it gets deposited in a `Bank` contract 
 
 _Note: on non-mainnet networks we deploy `DevChai`, a mock Chai implementation that simply mints more `MintableToken`s._
 
-## Dev
+## Architecture
+
+**Key contracts**
+
+* `Controller.sol` _(non-upgradeable)_ - the main contract users interact with.
+* `Bank.sol` _(upgradeable)_ - handles user token deposits and withdrawals and speaks to Chai.
+* `Settings.sol` _(upgradeable)_ - all other contracts use this to discover each other.
+
+**Upgradeability**
+
+The upgradeability architecture is implemented in `Proxy.sol` and is based on
+the [OpenZepellin eternal storage pattern](https://blog.openzeppelin.com/smart-contract-upgradeability-using-eternal-storage/).
+
+However, an ability to prevent future upgrades has been added (see the `freezeImplementation()` method). This means that the
+admins will be able to make the code truly immutable at any point in time once they are confident there are no more upgrades
+needed.
+
+
+## For devs
 
 Run a devnet:
 
