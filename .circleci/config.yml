@@ -39,19 +39,19 @@ jobs:
           executor: contracts
       - run:
           name: Compile
-          command: npm run compile
+          command: yarn compile
       - run:
           name: Deploy initial contracts
-          command: npm run deploy:local
+          command: yarn deploy:local
       - run:
           name: Run tests with coverage
-          command: npm run coverage
+          command: yarn coverage
       - store_artifacts:
           path: ~/repo/coverage
           destination: coverage
       - run:
           name: Upload coverage report to coveralls
-          command: cat ./coverage/lcov.info | npm coveralls
+          command: cat ./coverage/lcov.info | yarn coveralls
       - persist_to_workspace:
           root: ~/repo
           paths: .
