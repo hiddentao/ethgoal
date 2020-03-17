@@ -1,10 +1,10 @@
 [![CircleCI](https://circleci.com/gh/hiddentao/ethgoal/tree/master.svg?style=svg)](https://circleci.com/gh/hiddentao/ethgoal/tree/master) [![Coverage Status](https://coveralls.io/repos/github/hiddentao/ethgoal/badge.svg?branch=master)](https://coveralls.io/github/hiddentao/ethgoal?branch=master)
 
-# Ethgoal
+# Ethgoal
 
 Achieve goals with your friends' help, powered by the Ethereum blockchain.
 
-## How it works
+## How it works
 
 1. Submit a "pledge" to the blockchain along with digital signatures of between 1 and 3 friends who agree to judge whether you've
 achieved your pledge by a given end date. You submit a deposit along with your pledge. This is denominated in DAI
@@ -22,7 +22,7 @@ You can have any number of pledges open at a time.
 
 _Note: on non-mainnet networks we deploy `MintableToken`, a simple ERC-20 token which allows for unlimited minting._
 
-## Chai integration
+## Chai integration
 
 On mainnet, when you submit your deposit it gets deposited in a `Bank` contract which will actually send it to
 [Chai](https://chai.money) to earn interest - this way we don't need to charge the users any fees upfront!
