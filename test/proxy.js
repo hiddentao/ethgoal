@@ -28,6 +28,13 @@ contract('Proxy', accounts => {
     await proxyImpl.getImplementationVersion().should.eventually.eq('test1')
   })
 
+  it('can have implementation frozen by owner', async () => {
+    await testProxy.isImplementationFrozen().should.eventually.eq(false)
+    await testProxy.freezeImplementation({ from: accounts[1] }).should.be.rejectedWith('not the owner')
+    await testProxy.freezeImplementation().should.be.fulfilled
+    await testProxy.isImplementationFrozen().should.eventually.eq(true)
+  })
+
   it('cannot be upgraded to zero address', async () => {
     await testProxy.setImplementation(ADDRESS_ZERO).should.be.rejectedWith('implementation must be valid')
   })
@@ -37,7 +44,12 @@ contract('Proxy', accounts => {
   })
 
   it('cannot be upgraded if not the owner', async () => {
-    await testProxy.setImplementation(testProxyImpl2.address, { from: accounts[1] }).should.be.rejectedWith('Ownable: caller is not the owner')
+    await testProxy.setImplementation(testProxyImpl2.address, { from: accounts[1] }).should.be.rejectedWith('not the owner')
+  })
+
+  it('cannot be upgraded if implementation frozen', async () => {
+    await testProxy.freezeImplementation()
+    await testProxy.setImplementation(testProxyImpl2.address).should.be.rejectedWith('already frozen')
   })
 
   it('can be upgraded if the owner and a new implementation', async () => {

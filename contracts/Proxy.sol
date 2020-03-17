@@ -54,6 +54,13 @@ contract Proxy is Ownable {
   }
 
   /**
+   * @dev Get whether the current implementation is frozen.
+   */
+  function isImplementationFrozen() public view returns (bool)  {
+    return dataBool["implFrozen"];
+  }
+
+  /**
   * @dev Fallback function allowing to perform a delegatecall to the given implementation.
   * This function will return whatever the implementation call returns
   */
