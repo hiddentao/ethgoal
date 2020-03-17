@@ -6,6 +6,9 @@ import "./IChai.sol";
 import "./IERC20.sol";
 
 interface ISettings {
+  function setController(address _contract) external;
+  function getController() external view returns (address);
+
   function setBank(address _contract) external;
   function getBank() external view returns (IBank);
 

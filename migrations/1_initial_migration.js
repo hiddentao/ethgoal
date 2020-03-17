@@ -15,7 +15,7 @@ module.exports = async (deployer, network) => {
   await settings.setBank(bank.address)
 
   const controller = await ensureControllerIsDeployed({ deployer, artifacts, enableLogger: true }, settings.address)
-  await settings.setBank(controller.address)
+  await settings.setController(controller.address)
 
   switch (network) {
     case 'test':

@@ -197,10 +197,6 @@ contract Controller is Ownable, SettingsControl, IController {
       return keccak256(abi.encodePacked(_creator, _potAmount, _endDate, _numJudges));
     }
 
-    function getTime() public view returns (uint) {
-        return now;
-    }
-
     function getPledgeJudge(uint _pledgeId, uint _judgeIndex) public override view returns (address) {
         return pledges[_pledgeId].judges[_judgeIndex];
     }

@@ -61,6 +61,17 @@ contract('Settings', accounts => {
     await settings.getTime().should.eventually.not.eq(0)
   })
 
+  describe('can have controller set', () => {
+    it('but not just by anyone', async () => {
+      await settings.setController(accounts[2], { from: accounts[2] }).should.be.rejectedWith('not the owner');
+    })
+
+    it('by owner', async () => {
+      await settings.setController(accounts[2]).should.be.fulfilled
+      await settings.getController().should.eventually.eq(accounts[2])
+    })
+  })
+
   describe('can have payment unit set', () => {
     it('but not just by anyone', async () => {
       await settings.setPaymentUnit(accounts[2], { from: accounts[2] }).should.be.rejectedWith('not the owner');

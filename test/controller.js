@@ -2,21 +2,26 @@ import {
   hdWallet,
   ADDRESS_ZERO,
   extractEventArgs,
-  events,
   web3EvmIncreaseTime,
   gwei,
   wei,
 } from './utils'
-
-import { ensureEtherTokenIsDeployed } from '../migrations/utils/etherToken'
+import { events } from '../'
+import { ensureSettingsIsDeployed } from '../migrations/modules/settings'
+import { ensureMintableTokenIsDeployed } from '../migrations/modules/mintableToken'
+import { ensureDevChaiIsDeployed } from '../migrations/modules/devChai'
+import { ensureBankIsDeployed } from '../migrations/modules/bank'
 
 const Controller = artifacts.require('./Controller')
 
-
 contract('Controller', accounts => {
+  let settings
+  let mintableToken
+  let chai
+  let bank
+
   let controller
   let currentTime
-  let etherToken
   let fingerprint
   let preparePledge
   let createPledge
@@ -25,18 +30,26 @@ contract('Controller', accounts => {
   let getBalance
 
   beforeEach(async () => {
+    settings = await ensureSettingsIsDeployed({ artifacts })
+
+    mintableToken = await ensureMintableTokenIsDeployed({ artifacts }, settings.address)
+    await settings.setPaymentUnit(mintableToken.address)
+
+    chai = await ensureDevChaiIsDeployed({ artifacts }, settings.address)
+    settings.setChai(chai.address)
+
+    bank = await ensureBankIsDeployed({ artifacts }, settings.address)
+    await settings.setBank(bank.address)
+
     getBalance = async a => wei(await web3.eth.getBalance(a))
 
-    etherToken = await ensureEtherTokenIsDeployed({ artifacts })
-
-    feeDivider = 1000  // fee of 0.1%
     judgementPeriodSeconds = 86400 // 1 day
-    controller = await Controller.new(feeDivider, judgementPeriodSeconds)
+    controller = await Controller.new(settings.address, judgementPeriodSeconds)
 
-    const t = await controller.getTime()
+    const t = await settings.getTime()
     currentTime = parseInt(t.toString())
 
-    preparePledge = async ({ creator, pot, unit, endDate, judges } = {}) => {
+    preparePledge = async ({ creator, pot, endDate, judges } = {}) => {
       creator = creator || accounts[0]
 
       const numJudges = (judges ? judges.length : 3)
@@ -44,13 +57,12 @@ contract('Controller', accounts => {
       const ret = {
         creator,
         pot: pot || gwei(1).toNumber(),
-        unit: unit || ADDRESS_ZERO,
         endDate: endDate || (currentTime + 10000),
         numJudges,
       }
 
       fingerprint = await controller.calculatePledgeFingerprint(
-        ret.creator, ret.pot, ret.unit, ret.endDate, numJudges
+        ret.creator, ret.pot, ret.endDate, numJudges
       )
 
       ret.signatures = (judges || accounts.slice(1, 4)).map(j => {
@@ -60,10 +72,9 @@ contract('Controller', accounts => {
       return ret
     }
 
-    createPledge = async ({ creator, pot, unit, endDate, numJudges, signatures } = {}, attrs = {}) => {
+    createPledge = async ({ creator, pot, endDate, numJudges, signatures } = {}, attrs = {}) => {
       return controller.createPledge(
         pot,
-        unit,
         endDate,
         numJudges,
         signatures[0] || "0x0",
@@ -74,18 +85,14 @@ contract('Controller', accounts => {
     }
   })
 
-  it('has contract address assigned as bank', async () => {
-    await controller.getBank().should.eventually.eq(controller.address)
-  })
-
   it('is initially unlocked', async () => {
     await controller.isLocked().should.eventually.eq(false)
   })
 
   describe('can be locked / unlocked', () => {
     it('but not just by anyone', async () => {
-      await controller.lock({ from: accounts[1] }).should.be.rejectedWith('Ownable: caller is not the owner')
-      await controller.unlock({ from: accounts[1] }).should.be.rejectedWith('Ownable: caller is not the owner')
+      await controller.lock({ from: accounts[1] }).should.be.rejectedWith('not the owner')
+      await controller.unlock({ from: accounts[1] }).should.be.rejectedWith('not the owner')
     })
 
     it('by the admin', async () => {
@@ -105,7 +112,7 @@ contract('Controller', accounts => {
 
     it('but not when contract is locked', async () => {
       await controller.lock()
-      await createPledge(samplePledgeInputs).should.be.rejectedWith('contract locked')
+      await createPledge(samplePledgeInputs).should.be.rejectedWith('locked')
     })
 
     it('but not if number of judges is less than 3', async () => {
@@ -128,7 +135,7 @@ contract('Controller', accounts => {
       await createPledge(samplePledgeInputs).should.be.rejectedWith('pot amount must be atleast 1 gwei')
     })
 
-    it('but not if signature is corrupted', async () => {
+    it('but not if a signature is corrupted', async () => {
       samplePledgeInputs.signatures[0] = '0x01'
       await createPledge(samplePledgeInputs).should.be.rejectedWith('invalid judge')
     })
@@ -145,16 +152,28 @@ contract('Controller', accounts => {
 
     it('but not if creator balance is low', async () => {
       // pot = 100, so let's pass 99 ;)
-      await createPledge(samplePledgeInputs, { value: samplePledgeInputs.pot - 1 }).should.be.rejectedWith('not enough ETH')
+      const bal = samplePledgeInputs.pot - 1
+      await mintableToken.mint(bal)
+
+      await mintableToken.approve(bank.address, bal)
+      await createPledge(samplePledgeInputs).should.be.rejectedWith('amount exceeds allowance')
+
+      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(bal)
     })
 
     it('if all checks pass', async () => {
       // now we match the pot
-      await createPledge(samplePledgeInputs, { value: samplePledgeInputs.pot }).should.be.fulfilled
+      const bal = samplePledgeInputs.pot
+      await mintableToken.mint(bal)
+
+      await mintableToken.approve(bank.address, bal)
+      await createPledge(samplePledgeInputs).should.be.fulfilled
+
+      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(0)
     })
   })
 
-  describe('when pledges are created', () => {
+  describe.only('when pledges are created', () => {
     let pledgeInputs
     let result
 
@@ -163,14 +182,12 @@ contract('Controller', accounts => {
         preparePledge({
           creator: accounts[0],
           pot: gwei(100).toNumber(),
-          unit: ADDRESS_ZERO,
           endDate: currentTime + 100,
           judges: [ accounts[1], accounts[2] ],
         }),
         preparePledge({
           creator: accounts[1],
           pot: gwei(50).toNumber(),
-          unit: ADDRESS_ZERO,
           endDate: currentTime + 100,
           judges: [ accounts[2] ],
         }),
@@ -190,7 +207,6 @@ contract('Controller', accounts => {
       expect(c.numJudgements.toNumber()).to.eq(0)
       expect(c.numFailedJudgements.toNumber()).to.eq(0)
       expect(c.pot.toNumber()).to.eq(pledgeInputs[0].pot)
-      expect(c.unit).to.eq(pledgeInputs[0].unit)
       expect(c.endDate.toNumber()).to.eq(pledgeInputs[0].endDate)
       await controller.getPledgeJudge(1, 0).should.eventually.eq(accounts[1])
       await controller.getPledgeJudge(1, 1).should.eventually.eq(accounts[2])
@@ -252,7 +268,7 @@ contract('Controller', accounts => {
     describe('they can be judged', () => {
       it('but not when contract is locked', async () => {
         await controller.lock()
-        await controller.judgePledge(1, false).should.be.rejectedWith('contract locked')
+        await controller.judgePledge(1, false).should.be.rejectedWith('locked')
       })
 
       it('but not by the creator', async () => {

@@ -74,6 +74,14 @@ contract('Bank', accounts => {
   })
 
   describe('deposits', () => {
+    beforeEach(async () => {
+      await settings.setController(accounts[0])
+    })
+
+    it('must be from controller', async () => {
+      await bank.deposit(accounts[0], 1, { from: accounts[2] }).should.be.rejectedWith('must be controller')
+    })
+
     it('need token authorization', async () => {
       await bank.deposit(accounts[0], 1).should.be.rejectedWith('exceeds allowance')
     })
@@ -113,6 +121,55 @@ contract('Bank', accounts => {
       await bank.deposit(accounts[0], 1)
       await bank.deposit(accounts[0], 4)
       await bank.deposit(accounts[0], 3)
+
+      const ret = await bank.emitProfit()
+
+      expect(extractEventArgs(ret, events.Profit)).to.include({
+        amount: '15'
+      })
+    })
+  })
+
+  describe('withdrawals', () => {
+    beforeEach(async () => {
+      await settings.setController(accounts[0])
+
+      await mintableToken.mint(6)
+      await mintableToken.approve(bank.address, 6)
+      await bank.deposit(accounts[0], 1)
+      await bank.deposit(accounts[0], 2)
+      await bank.deposit(accounts[0], 3)
+      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(0)
+    })
+
+    it('must be from controller', async () => {
+      await bank.withdraw(accounts[0], 1, { from: accounts[2] }).should.be.rejectedWith('must be controller')
+    })
+
+    it('need enough balance', async () => {
+      await bank.withdraw(accounts[0], 7).should.be.rejected
+    })
+
+    it('work', async () => {
+      await bank.withdraw(accounts[0], 6).should.be.fulfilled
+      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(6)
+    })
+
+    it('get taken from chai', async () => {
+      await bank.withdraw(accounts[0], 1)
+
+      await mintableToken.balanceOf(bank.address).should.eventually.eq(0)
+      await mintableToken.balanceOf(chai.address).should.eventually.eq(20)
+    })
+
+    it('decrement the deposit total', async () => {
+      await bank.getUserDepositTotal().should.eventually.eq(6)
+      await bank.withdraw(accounts[0], 1)
+      await bank.getUserDepositTotal().should.eventually.eq(5)
+    })
+
+    it('do not affect the bank profit', async () => {
+      await bank.withdraw(accounts[0], 1)
 
       const ret = await bank.emitProfit()
 

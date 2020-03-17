@@ -11,6 +11,14 @@ contract SettingsImpl is Ownable, ISettings, IProxyImpl {
     return "v1";
   }
 
+  function setController(address _contract) public override onlyOwner {
+    dataAddress["controller"] = _contract;
+  }
+
+  function getController() public override view returns (address) {
+    return dataAddress["controller"];
+  }
+
   function setBank(address _contract) public override onlyOwner {
     dataAddress["bank"] = _contract;
   }

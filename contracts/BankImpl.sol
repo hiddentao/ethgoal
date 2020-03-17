@@ -12,13 +12,18 @@ import "./IProxyImpl.sol";
 contract BankImpl is IBank, SettingsControl, Ownable, IProxyImpl {
   using SafeMath for *;
 
+  modifier isController () {
+    require(msg.sender == settings().getController(), 'must be controller');
+    _;
+  }
+
   constructor (address _settings) SettingsControl(_settings) Ownable() public {}
 
   function getImplementationVersion() public override pure returns (string memory) {
     return "v1";
   }
 
-  function deposit(address _from, uint _amount) public override {
+  function deposit(address _from, uint _amount) public override isController {
     IERC20 token = settings().getPaymentUnit();
     // user -> bank
     token.transferFrom(_from, address(this), _amount);
@@ -30,7 +35,7 @@ contract BankImpl is IBank, SettingsControl, Ownable, IProxyImpl {
     dataUint256["userDepositTotal"] = dataUint256["userDepositTotal"].add(_amount);
   }
 
-  function withdraw(address _to, uint _amount) public override {
+  function withdraw(address _to, uint _amount) public override isController {
     // chai -> bank
     settings().getChai().draw(address(this), _amount);
     // bank -> user
