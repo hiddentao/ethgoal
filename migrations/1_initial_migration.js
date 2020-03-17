@@ -19,7 +19,7 @@ module.exports = async (deployer, network) => {
 
   switch (network) {
     case 'test':
-    case 'coverage':
+    case 'soliditycoverage':
     case 'rinkeby':
       console.log('Setting up for dev chain settings...')
 

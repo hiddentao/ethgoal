@@ -120,8 +120,8 @@ contract Controller is Ownable, SettingsControl, IController {
           require(judgeAddress != pledges[pledgeId].creator, 'creator cannot be judge');
           require(!pledges[pledgeId].isJudge[judgeAddress], 'duplicate judge found');
           // update pledge
-          pledges[pledgeId].judges[pledges[pledgeId].numJudges] = judgeAddress;
           pledges[pledgeId].numJudges += 1;
+          pledges[pledgeId].judges[pledges[pledgeId].numJudges] = judgeAddress;
           pledges[pledgeId].isJudge[judgeAddress] = true;
           // update user entry
           users[judgeAddress].pledgesJudged[users[judgeAddress].numPledgesJudged] = pledgeId;
@@ -269,6 +269,27 @@ contract Controller is Ownable, SettingsControl, IController {
         oldestActiveJudgedPledgeIndex_ = u.oldestActiveJudgedPledgeIndex;
     }
 
+    function isPledgeJudgeable (uint _pledgeId) public override view returns (bool) {
+        if (now < pledges[_pledgeId].endDate) {
+            return false;
+        }
+
+        uint diff = now - pledges[_pledgeId].endDate;
+
+        return (diff >= 0) && (diff <= judgementPeriod);
+    }
+
+    function isPledgeWithdrawable (uint _pledgeId) public override view returns (bool) {
+        if (now < pledges[_pledgeId].endDate) {
+            return false;
+        }
+
+        return (now - pledges[_pledgeId].endDate) > judgementPeriod;
+    }
+
+    function isPledgeFailed (uint _pledgeId) public override view returns (bool) {
+        return (pledges[_pledgeId].numFailedJudgements > (pledges[_pledgeId].numJudges / 2));
+    }
 
     /// Internal functions ///
 
@@ -281,7 +302,7 @@ contract Controller is Ownable, SettingsControl, IController {
             uint judgeReward = p.balance.div(p.numJudges);
 
             // split amongst judges
-            for (uint i = 0; i < p.numJudges; i += 1) {
+            for (uint i = 1; i <= p.numJudges; i += 1) {
                 address j = p.judges[i];
                 users[j].balance = users[j].balance.add(judgeReward);
             }
@@ -376,27 +397,5 @@ contract Controller is Ownable, SettingsControl, IController {
                 return p.balance;
             }
         }
-    }
-
-    function isPledgeJudgeable (uint _pledgeId) internal view returns (bool) {
-        if (now < pledges[_pledgeId].endDate) {
-            return false;
-        }
-
-        uint diff = now - pledges[_pledgeId].endDate;
-
-        return (diff >= 0) && (diff <= judgementPeriod);
-    }
-
-    function isPledgeWithdrawable (uint _pledgeId) internal view returns (bool) {
-        if (now < pledges[_pledgeId].endDate) {
-            return false;
-        }
-
-        return (now - pledges[_pledgeId].endDate) > judgementPeriod;
-    }
-
-    function isPledgeFailed (uint _pledgeId) internal view returns (bool) {
-        return (pledges[_pledgeId].numFailedJudgements > (pledges[_pledgeId].numJudges / 2));
     }
 }

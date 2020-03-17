@@ -4,7 +4,7 @@ import {
   extractEventArgs,
   web3EvmIncreaseTime,
   gwei,
-  wei,
+  promiseMapSerial,
 } from './utils'
 import { events } from '../'
 import { ensureSettingsIsDeployed } from '../migrations/modules/settings'
@@ -25,9 +25,10 @@ contract('Controller', accounts => {
   let fingerprint
   let preparePledge
   let createPledge
-  let feeDivider
+  let setupPledgesAndGetBalances
   let judgementPeriodSeconds
-  let getBalance
+  let getUserBalance
+  let getTokenBalance
 
   beforeEach(async () => {
     settings = await ensureSettingsIsDeployed({ artifacts })
@@ -41,10 +42,13 @@ contract('Controller', accounts => {
     bank = await ensureBankIsDeployed({ artifacts }, settings.address)
     await settings.setBank(bank.address)
 
-    getBalance = async a => wei(await web3.eth.getBalance(a))
-
     judgementPeriodSeconds = 86400 // 1 day
+
     controller = await Controller.new(settings.address, judgementPeriodSeconds)
+    await settings.setController(controller.address)
+
+    getUserBalance = async a => controller.getUser(a).then(({ balance_ }) => balance_)
+    getTokenBalance = async a => mintableToken.balanceOf(a).then(n => n.toNumber())
 
     const t = await settings.getTime()
     currentTime = parseInt(t.toString())
@@ -82,6 +86,18 @@ contract('Controller', accounts => {
         signatures[2] || "0x0",
         Object.assign({ from: creator }, attrs)
       )
+    }
+
+    setupPledgesAndGetBalances = async pledgeInputs => {
+      return promiseMapSerial(pledgeInputs, async p => {
+        await createPledge(p, {
+          from: p.creator
+        })
+
+        const latestPledgeNum = (await controller.getNumPledges()).toNumber()
+
+        return controller.getPledge(latestPledgeNum).then(({ balance_ }) => balance_.toNumber())
+      })
     }
   })
 
@@ -158,7 +174,7 @@ contract('Controller', accounts => {
       await mintableToken.approve(bank.address, bal)
       await createPledge(samplePledgeInputs).should.be.rejectedWith('amount exceeds allowance')
 
-      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(bal)
+      await getTokenBalance(accounts[0]).should.eventually.eq(bal)
     })
 
     it('if all checks pass', async () => {
@@ -169,11 +185,11 @@ contract('Controller', accounts => {
       await mintableToken.approve(bank.address, bal)
       await createPledge(samplePledgeInputs).should.be.fulfilled
 
-      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(0)
+      await getTokenBalance(accounts[0]).should.eventually.eq(0)
     })
   })
 
-  describe.only('when pledges are created', () => {
+  describe('when pledges are created', () => {
     let pledgeInputs
     let result
 
@@ -193,7 +209,11 @@ contract('Controller', accounts => {
         }),
       ])
 
-      result = await Promise.all(pledgeInputs.map(p => createPledge(p, { from: p.creator, value: p.pot })))
+      result = await Promise.all(pledgeInputs.map(async p => {
+        await mintableToken.mint(p.pot, { from: p.creator })
+        await mintableToken.approve(bank.address, p.pot, { from: p.creator })
+        return createPledge(p, { from: p.creator })
+      }))
     })
 
     it('has the correct initial data', async () => {
@@ -202,59 +222,56 @@ contract('Controller', accounts => {
 
       // first pledge
       let c = await controller.getPledge(1)
-      expect(c.creator).to.eq(accounts[0])
-      expect(c.numJudges.toNumber()).to.eq(pledgeInputs[0].numJudges)
-      expect(c.numJudgements.toNumber()).to.eq(0)
-      expect(c.numFailedJudgements.toNumber()).to.eq(0)
-      expect(c.pot.toNumber()).to.eq(pledgeInputs[0].pot)
-      expect(c.endDate.toNumber()).to.eq(pledgeInputs[0].endDate)
-      await controller.getPledgeJudge(1, 0).should.eventually.eq(accounts[1])
-      await controller.getPledgeJudge(1, 1).should.eventually.eq(accounts[2])
-      const fee1 = c.pot / feeDivider
-      expect(c.balance.toNumber()).to.eq(c.pot - fee1)
+      expect(c.creator_).to.eq(accounts[0])
+      expect(c.numJudges_.toNumber()).to.eq(pledgeInputs[0].numJudges)
+      expect(c.numJudgements_.toNumber()).to.eq(0)
+      expect(c.numFailedJudgements_.toNumber()).to.eq(0)
+      expect(c.pot_.toNumber()).to.eq(pledgeInputs[0].pot)
+      expect(c.endDate_.toNumber()).to.eq(pledgeInputs[0].endDate)
+      expect(c.balance_.toNumber()).to.eq(c.pot_.toNumber())
+      await controller.getPledgeJudge(1, 1).should.eventually.eq(accounts[1])
+      await controller.getPledgeJudge(1, 2).should.eventually.eq(accounts[2])
 
-      await controller.pledgeJudgeable(1).should.eventually.eq(false)
-      await controller.pledgeWithdrawable(1).should.eventually.eq(false)
+      await controller.isPledgeJudgeable(1).should.eventually.eq(false)
+      await controller.isPledgeWithdrawable(1).should.eventually.eq(false)
 
       // second pledge
       c = await controller.getPledge(2)
-      expect(c.creator).to.eq(accounts[1])
-      expect(c.numJudges.toNumber()).to.eq(pledgeInputs[1].numJudges)
-      expect(c.numJudgements.toNumber()).to.eq(0)
-      expect(c.numFailedJudgements.toNumber()).to.eq(0)
-      expect(c.pot.toNumber()).to.eq(pledgeInputs[1].pot)
-      expect(c.unit).to.eq(pledgeInputs[1].unit)
-      expect(c.endDate.toNumber()).to.eq(pledgeInputs[1].endDate)
-      await controller.getPledgeJudge(2, 0).should.eventually.eq(accounts[2])
-      const fee2 = c.pot / feeDivider
-      expect(c.balance.toNumber()).to.eq(c.pot - fee2)
+      expect(c.creator_).to.eq(accounts[1])
+      expect(c.numJudges_.toNumber()).to.eq(pledgeInputs[1].numJudges)
+      expect(c.numJudgements_.toNumber()).to.eq(0)
+      expect(c.numFailedJudgements_.toNumber()).to.eq(0)
+      expect(c.pot_.toNumber()).to.eq(pledgeInputs[1].pot)
+      expect(c.endDate_.toNumber()).to.eq(pledgeInputs[1].endDate)
+      expect(c.balance_.toNumber()).to.eq(c.pot_.toNumber())
+      await controller.getPledgeJudge(2, 1).should.eventually.eq(accounts[2])
 
-      await controller.pledgeJudgeable(2).should.eventually.eq(false)
-      await controller.pledgeWithdrawable(2).should.eventually.eq(false)
-
-      // bank
-      await controller.getUserBalance(controller.address, ADDRESS_ZERO).should.eventually.eq(fee1 + fee2)
+      await controller.isPledgeJudgeable(2).should.eventually.eq(false)
+      await controller.isPledgeWithdrawable(2).should.eventually.eq(false)
 
       // accounts[0]
       c = await controller.getUser(accounts[0])
-      expect(c.numPledgesCreated.toNumber()).to.eq(1)
-      expect(c.oldestActiveCreatedPledgeIndex.toNumber()).to.eq(0)
-      expect(c.numPledgesJudged.toNumber()).to.eq(0)
-      expect(c.oldestActiveJudgedPledgeIndex.toNumber()).to.eq(0)
+      expect(c.balance_.toNumber()).to.eq(0)
+      expect(c.numPledgesCreated_.toNumber()).to.eq(1)
+      expect(c.oldestActiveCreatedPledgeIndex_.toNumber()).to.eq(0)
+      expect(c.numPledgesJudged_.toNumber()).to.eq(0)
+      expect(c.oldestActiveJudgedPledgeIndex_.toNumber()).to.eq(0)
 
       // accounts[1]
       c = await controller.getUser(accounts[1])
-      expect(c.numPledgesCreated.toNumber()).to.eq(1)
-      expect(c.oldestActiveCreatedPledgeIndex.toNumber()).to.eq(0)
-      expect(c.numPledgesJudged.toNumber()).to.eq(1)
-      expect(c.oldestActiveJudgedPledgeIndex.toNumber()).to.eq(0)
+      expect(c.balance_.toNumber()).to.eq(0)
+      expect(c.numPledgesCreated_.toNumber()).to.eq(1)
+      expect(c.oldestActiveCreatedPledgeIndex_.toNumber()).to.eq(0)
+      expect(c.numPledgesJudged_.toNumber()).to.eq(1)
+      expect(c.oldestActiveJudgedPledgeIndex_.toNumber()).to.eq(0)
 
       // accounts[2]
       c = await controller.getUser(accounts[2])
-      expect(c.numPledgesCreated.toNumber()).to.eq(0)
-      expect(c.oldestActiveCreatedPledgeIndex.toNumber()).to.eq(0)
-      expect(c.numPledgesJudged.toNumber()).to.eq(2)
-      expect(c.oldestActiveJudgedPledgeIndex.toNumber()).to.eq(0)
+      expect(c.balance_.toNumber()).to.eq(0)
+      expect(c.numPledgesCreated_.toNumber()).to.eq(0)
+      expect(c.oldestActiveCreatedPledgeIndex_.toNumber()).to.eq(0)
+      expect(c.numPledgesJudged_.toNumber()).to.eq(2)
+      expect(c.oldestActiveJudgedPledgeIndex_.toNumber()).to.eq(0)
     })
 
     it('emits events', async () => {
@@ -288,8 +305,8 @@ contract('Controller', accounts => {
       it('but not if pledge is past the judgement phase', async () => {
         await web3EvmIncreaseTime(web3, 86400 * 14 + 101 /* ~ 2 weeks after end time */)
 
-        await controller.pledgeJudgeable(1).should.eventually.eq(false)
-        await controller.pledgeWithdrawable(1).should.eventually.eq(true)
+        await controller.isPledgeJudgeable(1).should.eventually.eq(false)
+        await controller.isPledgeWithdrawable(1).should.eventually.eq(true)
 
         await controller.judgePledge(1, false, { from: accounts[1] }).should.be.rejectedWith('not judgeable')
       })
@@ -303,23 +320,23 @@ contract('Controller', accounts => {
       it('and the verdict can be positive', async () => {
         await web3EvmIncreaseTime(web3, 100)
 
-        await controller.pledgeJudgeable(1).should.eventually.eq(true)
-        await controller.pledgeWithdrawable(1).should.eventually.eq(false)
+        await controller.isPledgeJudgeable(1).should.eventually.eq(true)
+        await controller.isPledgeWithdrawable(1).should.eventually.eq(false)
 
         await controller.judgePledge(1, true, { from: accounts[1] }).should.be.fulfilled
 
         // check pledge
         const p = await controller.getPledge(1)
-        expect(p.numJudgements.toNumber()).to.eq(1)
-        expect(p.numFailedJudgements.toNumber()).to.eq(0)
+        expect(p.numJudgements_.toNumber()).to.eq(1)
+        expect(p.numFailedJudgements_.toNumber()).to.eq(0)
         await controller.getPledgeJudgement(1, accounts[1]).should.eventually.eq(1)
 
         // check judgement
         await controller.getNumJudgements().should.eventually.eq(1)
         const j = await controller.getJudgement(1)
-        expect(j.judge).to.eq(accounts[1])
-        expect(j.pledgeId.toNumber()).to.eq(1)
-        expect(j.passed).to.eq(true)
+        expect(j.judge_).to.eq(accounts[1])
+        expect(j.pledgeId_.toNumber()).to.eq(1)
+        expect(j.passed_).to.eq(true)
       })
 
       it('and the verdict can be negative', async () => {
@@ -328,16 +345,16 @@ contract('Controller', accounts => {
 
         // check pledge
         const p = await controller.getPledge(1)
-        expect(p.numJudgements.toNumber()).to.eq(1)
-        expect(p.numFailedJudgements.toNumber()).to.eq(1)
+        expect(p.numJudgements_.toNumber()).to.eq(1)
+        expect(p.numFailedJudgements_.toNumber()).to.eq(1)
         await controller.getPledgeJudgement(1, accounts[2]).should.eventually.eq(1)
 
         // check judgement
         await controller.getNumJudgements().should.eventually.eq(1)
         const j = await controller.getJudgement(1)
-        expect(j.judge).to.eq(accounts[2])
-        expect(j.pledgeId.toNumber()).to.eq(1)
-        expect(j.passed).to.eq(false)
+        expect(j.judge_).to.eq(accounts[2])
+        expect(j.pledgeId_.toNumber()).to.eq(1)
+        expect(j.passed_).to.eq(false)
       })
 
       it('and if a clear majority is not negative then the pledge has not failed', async () => {
@@ -347,27 +364,27 @@ contract('Controller', accounts => {
 
         // check pledge
         const p = await controller.getPledge(1)
-        expect(p.numJudgements.toNumber()).to.eq(2)
-        expect(p.numFailedJudgements.toNumber()).to.eq(1)
+        expect(p.numJudgements_.toNumber()).to.eq(2)
+        expect(p.numFailedJudgements_.toNumber()).to.eq(1)
         await controller.getPledgeJudgement(1, accounts[1]).should.eventually.eq(1)
         await controller.getPledgeJudgement(1, accounts[2]).should.eventually.eq(2)
 
-        await controller.pledgeFailed(1).should.eventually.eq(false)
+        await controller.isPledgeFailed(1).should.eventually.eq(false)
 
         // check judgements
         await controller.getNumJudgements().should.eventually.eq(2)
         let j = await controller.getJudgement(1)
-        expect(j.judge).to.eq(accounts[1])
-        expect(j.pledgeId.toNumber()).to.eq(1)
-        expect(j.passed).to.eq(true)
+        expect(j.judge_).to.eq(accounts[1])
+        expect(j.pledgeId_.toNumber()).to.eq(1)
+        expect(j.passed_).to.eq(true)
         j = await controller.getJudgement(2)
-        expect(j.judge).to.eq(accounts[2])
-        expect(j.pledgeId.toNumber()).to.eq(1)
-        expect(j.passed).to.eq(false)
+        expect(j.judge_).to.eq(accounts[2])
+        expect(j.pledgeId_.toNumber()).to.eq(1)
+        expect(j.passed_).to.eq(false)
       })
 
       it('and if a clear majority is negative then the pledge has failed and the pot gets paid out', async () => {
-        const initialBalance = (await controller.getPledge(1)).balance.toNumber()
+        const initialBalance = (await controller.getPledge(1)).balance_.toNumber()
 
         await web3EvmIncreaseTime(web3, 100)
         await controller.judgePledge(1, false, { from: accounts[1] }).should.be.fulfilled
@@ -375,231 +392,183 @@ contract('Controller', accounts => {
 
         // check pledge
         const p = await controller.getPledge(1)
-        expect(p.numJudgements.toNumber()).to.eq(2)
-        expect(p.numFailedJudgements.toNumber()).to.eq(2)
+        expect(p.numJudgements_.toNumber()).to.eq(2)
+        expect(p.numFailedJudgements_.toNumber()).to.eq(2)
         await controller.getPledgeJudgement(1, accounts[1]).should.eventually.eq(1)
         await controller.getPledgeJudgement(1, accounts[2]).should.eventually.eq(2)
 
-        await controller.pledgeFailed(1).should.eventually.eq(true)
+        await controller.isPledgeFailed(1).should.eventually.eq(true)
 
         // check judgements
         await controller.getNumJudgements().should.eventually.eq(2)
         let j = await controller.getJudgement(1)
-        expect(j.judge).to.eq(accounts[1])
-        expect(j.pledgeId.toNumber()).to.eq(1)
-        expect(j.passed).to.eq(false)
+        expect(j.judge_).to.eq(accounts[1])
+        expect(j.pledgeId_.toNumber()).to.eq(1)
+        expect(j.passed_).to.eq(false)
         j = await controller.getJudgement(2)
-        expect(j.judge).to.eq(accounts[2])
-        expect(j.pledgeId.toNumber()).to.eq(1)
-        expect(j.passed).to.eq(false)
+        expect(j.judge_).to.eq(accounts[2])
+        expect(j.pledgeId_.toNumber()).to.eq(1)
+        expect(j.passed_).to.eq(false)
 
         // check the balances
-        expect(p.balance.toNumber()).to.eq(0)
+        expect(p.balance_.toNumber()).to.eq(0)
 
-        const payout = initialBalance / p.numJudges.toNumber()
-        await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(0)
-        await controller.getUserBalance(accounts[1], ADDRESS_ZERO).should.eventually.eq(payout)
-        await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(payout)
+        const payout = initialBalance / p.numJudges_.toNumber()
+        await getUserBalance(accounts[0]).should.eventually.eq(0)
+        await getUserBalance(accounts[1]).should.eventually.eq(payout)
+        await getUserBalance(accounts[2]).should.eventually.eq(payout)
       })
 
       it('and if there is just one judge then that judge gets the whole payout if pledge fails', async () => {
-        const initialBalance = (await controller.getPledge(2)).balance.toNumber()
+        const initialBalance = (await controller.getPledge(2)).balance_.toNumber()
 
         await web3EvmIncreaseTime(web3, 100)
         await controller.judgePledge(2, false, { from: accounts[2] }).should.be.fulfilled
 
         // check pledge
         const p = await controller.getPledge(2)
-        expect(p.numJudgements.toNumber()).to.eq(1)
-        expect(p.numFailedJudgements.toNumber()).to.eq(1)
+        expect(p.numJudgements_.toNumber()).to.eq(1)
+        expect(p.numFailedJudgements_.toNumber()).to.eq(1)
         await controller.getPledgeJudgement(2, accounts[2]).should.eventually.eq(1)
 
-        await controller.pledgeFailed(2).should.eventually.eq(true)
+        await controller.isPledgeFailed(2).should.eventually.eq(true)
 
         // // check judgements
         await controller.getNumJudgements().should.eventually.eq(1)
         let j = await controller.getJudgement(1)
-        expect(j.judge).to.eq(accounts[2])
-        expect(j.pledgeId.toNumber()).to.eq(2)
-        expect(j.passed).to.eq(false)
+        expect(j.judge_).to.eq(accounts[2])
+        expect(j.pledgeId_.toNumber()).to.eq(2)
+        expect(j.passed_).to.eq(false)
 
         // // check the balances
-        expect(p.balance.toNumber()).to.eq(0)
+        expect(p.balance_.toNumber()).to.eq(0)
 
-        await controller.getUserBalance(accounts[1], ADDRESS_ZERO).should.eventually.eq(0)
-        await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(initialBalance)
+        await getUserBalance(accounts[1]).should.eventually.eq(0)
+        await getUserBalance(accounts[2]).should.eventually.eq(initialBalance)
       })
     })
   })
 
   describe('complex balance calculations are possible, e.g', () => {
-    it('when user passed 1 pledge, failed another, and is judging another that has failed but in different unit', async () => {
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[0] })
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[1] })
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[2] })
+    beforeEach(async () => {
+      await mintableToken.mint(gwei(5000).toNumber(), { from: accounts[0] })
+      await mintableToken.mint(gwei(5000).toNumber(), { from: accounts[1] })
+      await mintableToken.mint(gwei(5000).toNumber(), { from: accounts[2] })
 
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[0] })
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[1] })
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[2] })
+      await mintableToken.approve(bank.address, gwei(500).toNumber(), { from: accounts[0] })
+      await mintableToken.approve(bank.address, gwei(500).toNumber(), { from: accounts[1] })
+      await mintableToken.approve(bank.address, gwei(500).toNumber(), { from: accounts[2] })
+    })
 
+    it('pledge 1 pass, pledge 2 fail, pledge 3 eventually fail', async () => {
       const pledgeInputs = await Promise.all([
         preparePledge({
           creator: accounts[0],
           pot: gwei(100).toNumber(),
-          unit: etherToken.address,
           endDate: currentTime + 100,
           judges: [accounts[1], accounts[2]],
         }),
         preparePledge({
           creator: accounts[0],
           pot: gwei(50).toNumber(),
-          unit: etherToken.address,
           endDate: currentTime + 100,
           judges: [accounts[2]],
         }),
         preparePledge({
           creator: accounts[1],
           pot: gwei(50).toNumber(),
-          unit: ADDRESS_ZERO,
           endDate: currentTime + 100,
           judges: [accounts[0], accounts[2]],
         }),
       ])
 
-      await Promise.all(pledgeInputs.map(p => createPledge(p, {
-        from: p.creator,
-        value: (p.unit === ADDRESS_ZERO ? p.pot : 0)
-      })))
-
-      // get balances
-      const pledge1Balance = (await controller.getPledge(1)).balance.toNumber()
-      const pledge2Balance = (await controller.getPledge(2)).balance.toNumber()
-      const pledge3Balance = (await controller.getPledge(3)).balance.toNumber()
+      // setup and get balances
+      const [ pledge1Balance, pledge2Balance, pledge3Balance, ] = await setupPledgesAndGetBalances(pledgeInputs)
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)
       // fail the second pledge
       await controller.judgePledge(2, false, { from: accounts[2] }).should.be.fulfilled
-      // (almost) fail the third plege
+      // partially fail the third plege
       await controller.judgePledge(3, false, { from: accounts[0] }).should.be.fulfilled
 
       // now check balance
-      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(0)
-      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(0)
+      await getUserBalance(accounts[0]).should.eventually.eq(0)
+      await getUserBalance(accounts[1]).should.eventually.eq(0)
+      await getUserBalance(accounts[2]).should.eventually.eq(pledge2Balance)
 
-      await controller.getUserBalance(accounts[1], etherToken.address).should.eventually.eq(0)
-      await controller.getUserBalance(accounts[1], ADDRESS_ZERO).should.eventually.eq(0)
-
-      await controller.getUserBalance(accounts[2], etherToken.address).should.eventually.eq(pledge2Balance)
-      await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(0)
-
-      // now properly fail the third pledge
+      // fully fail the third pledge
       await controller.judgePledge(3, false, { from: accounts[2] }).should.be.fulfilled
 
       // wait till withdrawable period
       await web3EvmIncreaseTime(web3, judgementPeriodSeconds)
 
       // now check balance
-      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(pledge1Balance)
-      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2)
-
-      await controller.getUserBalance(accounts[1], etherToken.address).should.eventually.eq(0)
-      await controller.getUserBalance(accounts[1], ADDRESS_ZERO).should.eventually.eq(0)
-
-      await controller.getUserBalance(accounts[2], etherToken.address).should.eventually.eq(pledge2Balance)
-      await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2)
+      await getUserBalance(accounts[0]).should.eventually.eq(pledge1Balance + pledge3Balance / 2)
+      await getUserBalance(accounts[1]).should.eventually.eq(0)
+      await getUserBalance(accounts[2]).should.eventually.eq(pledge2Balance + pledge3Balance / 2)
     })
 
-    it('when user passed 1 pledge, failed another, and is judging another that has failed but in different unit', async () => {
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[0] })
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[1] })
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[2] })
-
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[0] })
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[1] })
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[2] })
-
+    it('pledges 1, 4 and 6 pass, pledges 2, 3 and 5 fail', async () => {
       const pledgeInputs1 = await Promise.all([
         preparePledge({
           creator: accounts[0],
           pot: gwei(100).toNumber(),
-          unit: etherToken.address,
           endDate: currentTime + 100,
           judges: [accounts[1], accounts[2]],
         }),
         preparePledge({
           creator: accounts[0],
           pot: gwei(50).toNumber(),
-          unit: etherToken.address,
           endDate: currentTime + 100,
           judges: [accounts[2]],
         }),
         preparePledge({
           creator: accounts[1],
           pot: gwei(50).toNumber(),
-          unit: ADDRESS_ZERO,
           endDate: currentTime + 100,
           judges: [accounts[0], accounts[2]],
         }),
       ])
 
-      await Promise.all(pledgeInputs1.map(p => createPledge(p, {
-        from: p.creator,
-        value: (p.unit === ADDRESS_ZERO ? p.pot : 0)
-      })))
-
-      // get balances
-      const pledge1Balance = (await controller.getPledge(1)).balance.toNumber()
-      const pledge2Balance = (await controller.getPledge(2)).balance.toNumber()
-      const pledge3Balance = (await controller.getPledge(3)).balance.toNumber()
+      const [pledge1Balance, pledge2Balance, pledge3Balance] = await setupPledgesAndGetBalances(pledgeInputs1)
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)
       // fail the second pledge
       await controller.judgePledge(2, false, { from: accounts[2] }).should.be.fulfilled
-      // (almost) fail the third plege
+      // fail the third plege
       await controller.judgePledge(3, false, { from: accounts[0] }).should.be.fulfilled
       await controller.judgePledge(3, false, { from: accounts[2] }).should.be.fulfilled
 
       // wait till withdrawable period
       await web3EvmIncreaseTime(web3, judgementPeriodSeconds)
 
-      const t = await controller.getTime()
+      const t = await settings.getTime()
       currentTime = parseInt(t.toString())
 
       const pledgeInputs2 = await Promise.all([
         preparePledge({
           creator: accounts[0],
           pot: gwei(100).toNumber(),
-          unit: ADDRESS_ZERO,
           endDate: currentTime + 100,
           judges: [accounts[1], accounts[2]],
         }),
         preparePledge({
           creator: accounts[1],
           pot: gwei(50).toNumber(),
-          unit: ADDRESS_ZERO,
           endDate: currentTime + 100,
           judges: [accounts[0]],
         }),
         preparePledge({
           creator: accounts[2],
           pot: gwei(50).toNumber(),
-          unit: etherToken.address,
           endDate: currentTime + 100,
           judges: [accounts[0], accounts[1]],
         }),
       ])
 
-      await Promise.all(pledgeInputs2.map(p => createPledge(p, {
-        from: p.creator,
-        value: (p.unit === ADDRESS_ZERO ? p.pot : 0)
-      })))
-
-      // get balances
-      const pledge4Balance = (await controller.getPledge(4)).balance.toNumber()
-      const pledge5Balance = (await controller.getPledge(5)).balance.toNumber()
-      const pledge6Balance = (await controller.getPledge(6)).balance.toNumber()
+      const [pledge4Balance, pledge5Balance, pledge6Balance] = await setupPledgesAndGetBalances(pledgeInputs2)
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)
@@ -608,73 +577,55 @@ contract('Controller', accounts => {
       await controller.judgePledge(5, false, { from: accounts[0] }).should.be.fulfilled
 
       // now check balance
-      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(pledge1Balance)
-      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2 + pledge5Balance)
-
-      await controller.getUserBalance(accounts[1], etherToken.address).should.eventually.eq(0)
-      await controller.getUserBalance(accounts[1], ADDRESS_ZERO).should.eventually.eq(0)
-
-      await controller.getUserBalance(accounts[2], etherToken.address).should.eventually.eq(pledge2Balance)
-      await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2)
+      await getUserBalance(accounts[0]).should.eventually.eq(pledge1Balance + pledge3Balance / 2 + pledge5Balance)
+      await getUserBalance(accounts[1]).should.eventually.eq(0)
+      await getUserBalance(accounts[2]).should.eventually.eq(pledge2Balance + pledge3Balance / 2)
 
       // wait till withdrawable period
       await web3EvmIncreaseTime(web3, judgementPeriodSeconds)
 
       // now check balances again
-      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(pledge1Balance)
-      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2 + pledge5Balance + pledge4Balance)
-
-      await controller.getUserBalance(accounts[1], etherToken.address).should.eventually.eq(0)
-      await controller.getUserBalance(accounts[1], ADDRESS_ZERO).should.eventually.eq(0)
-
-      await controller.getUserBalance(accounts[2], etherToken.address).should.eventually.eq(pledge2Balance + pledge6Balance)
-      await controller.getUserBalance(accounts[2], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2)
+      await getUserBalance(accounts[0]).should.eventually.eq(pledge1Balance + pledge3Balance / 2 + pledge4Balance + pledge5Balance)
+      await getUserBalance(accounts[1]).should.eventually.eq(0)
+      await getUserBalance(accounts[2]).should.eventually.eq(pledge2Balance + pledge3Balance / 2 + pledge6Balance)
     })
   })
 
   describe('withdrawals are possible', () => {
+    beforeEach(async () => {
+      await mintableToken.mint(gwei(5000).toNumber(), { from: accounts[0] })
+      await mintableToken.mint(gwei(5000).toNumber(), { from: accounts[1] })
+      await mintableToken.mint(gwei(5000).toNumber(), { from: accounts[2] })
+
+      await mintableToken.approve(bank.address, gwei(500).toNumber(), { from: accounts[0] })
+      await mintableToken.approve(bank.address, gwei(500).toNumber(), { from: accounts[1] })
+      await mintableToken.approve(bank.address, gwei(500).toNumber(), { from: accounts[2] })
+    })
+
     it('and balances reflect updated values afterwards', async () => {
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[0] })
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[1] })
-      await etherToken.deposit({ value: gwei(5000).toNumber(), from: accounts[2] })
-
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[0] })
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[1] })
-      await etherToken.approve(controller.address, gwei(200).toNumber(), { from: accounts[2] })
-
       const pledgeInputs = await Promise.all([
         preparePledge({
           creator: accounts[0],
           pot: gwei(100).toNumber(),
-          unit: etherToken.address,
           endDate: currentTime + 100,
           judges: [accounts[1], accounts[2]],
         }),
         preparePledge({
           creator: accounts[0],
           pot: gwei(50).toNumber(),
-          unit: etherToken.address,
           endDate: currentTime + 100,
           judges: [accounts[2]],
         }),
         preparePledge({
           creator: accounts[1],
           pot: gwei(50).toNumber(),
-          unit: ADDRESS_ZERO,
           endDate: currentTime + 100,
           judges: [accounts[0], accounts[2]],
         }),
       ])
 
-      await Promise.all(pledgeInputs.map(p => createPledge(p, {
-        from: p.creator,
-        value: (p.unit === ADDRESS_ZERO ? p.pot : 0)
-      })))
-
       // get balances
-      const pledge1Balance = (await controller.getPledge(1)).balance.toNumber()
-      const pledge2Balance = (await controller.getPledge(2)).balance.toNumber()
-      const pledge3Balance = (await controller.getPledge(3)).balance.toNumber()
+      const [ pledge1Balance, pledge2Balance, pledge3Balance ] = await setupPledgesAndGetBalances(pledgeInputs)
 
       // skip past end time
       await web3EvmIncreaseTime(web3, 100)
@@ -684,8 +635,7 @@ contract('Controller', accounts => {
       await controller.judgePledge(3, false, { from: accounts[0] }).should.be.fulfilled
 
       // now check balance
-      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(0)
-      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(0)
+      await getUserBalance(accounts[0]).should.eventually.eq(0)
 
       // now properly fail the third pledge
       await controller.judgePledge(3, false, { from: accounts[2] }).should.be.fulfilled
@@ -694,24 +644,20 @@ contract('Controller', accounts => {
       await web3EvmIncreaseTime(web3, judgementPeriodSeconds)
 
       // check balances
-      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(pledge1Balance)
-      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(pledge3Balance / 2)
+      await getUserBalance(accounts[0]).should.eventually.eq(pledge1Balance + pledge3Balance / 2)
+      await getUserBalance(accounts[1]).should.eventually.eq(0)
+      await getUserBalance(accounts[2]).should.eventually.eq(pledge2Balance + pledge3Balance / 2)
 
       // now withdraw
-      const pre1 = (await etherToken.balanceOf(accounts[0])).toNumber()
-      await controller.withdraw(etherToken.address, { from: accounts[0] })
-      const post1 = (await etherToken.balanceOf(accounts[0])).toNumber()
-      expect(post1 - pre1).to.eq(pledge1Balance)
-
-      const pre2 = (await getBalance(accounts[0]))
-      const ret = await controller.withdraw(ADDRESS_ZERO, { from: accounts[0] })
-      const gasUsed = gwei(ret.receipt.gasUsed).toWei()
-      const post2 = (await getBalance(accounts[0]))
-      expect(post2.sub(pre2).add(gasUsed).toNumber()).to.eq(pledge3Balance / 2)
+      const pre1 = await getTokenBalance(accounts[0])
+      await controller.withdraw({ from: accounts[0] })
+      const post1 = await getTokenBalance(accounts[0])
+      expect(post1 - pre1).to.eq(pledge1Balance + pledge3Balance / 2)
 
       // now check balances again
-      await controller.getUserBalance(accounts[0], etherToken.address).should.eventually.eq(0)
-      await controller.getUserBalance(accounts[0], ADDRESS_ZERO).should.eventually.eq(0)
+      await getUserBalance(accounts[0]).should.eventually.eq(0)
+      await getUserBalance(accounts[1]).should.eventually.eq(0)
+      await getUserBalance(accounts[2]).should.eventually.eq(pledge2Balance + pledge3Balance / 2)
     })
   })
 })

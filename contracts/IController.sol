@@ -49,6 +49,10 @@ interface IController {
   function getNumPledges() external view returns (uint);
   function getNumJudgements() external view returns (uint);
 
+  function isPledgeJudgeable (uint _pledgeId) external view returns (bool);
+  function isPledgeWithdrawable (uint _pledgeId) external view returns (bool);
+  function isPledgeFailed (uint _pledgeId) external view returns (bool);
+
   function calculatePledgeFingerprint(
     address _creator,
     uint _potAmount,

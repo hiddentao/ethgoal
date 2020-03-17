@@ -11,9 +11,10 @@ module.exports = {
   istanbulFolder: './coverage',
   istanbulReporter: ['lcov', 'html'],
   skipFiles: [
-    "base/ECDSA.sol",
-    "base/IERC20.sol",
-    "base/SafeMath.sol",
+    "ECDSA.sol",
+    "IERC20.sol",
+    "SafeMath.sol",
+    "MintableToken.sol",
     "Migrations.sol"
   ],
 }

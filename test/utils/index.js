@@ -5,7 +5,7 @@ import { parseLog } from 'ethereum-event-logs'
 import chaiAsPromised from 'chai-as-promised'
 
 import packageJson from '../../package.json'
-import { toBN, isBN } from '../../utils/web3'
+import { toBN, isBN, isAddress } from '../../utils/web3'
 
 import EthVal from 'ethval'
 
@@ -14,6 +14,12 @@ console.log(`Mnemonic: ${MNEMONIC}`)
 
 chai.use((_chai, utils) => {
   const sanitizeResultVal = (result, val) => {
+    // are we comparing addresses?
+    if (typeof val === 'string' && typeof result === 'string' && isAddress(result) && isAddress(val)) {
+      result = result.toLowerCase()
+      val = val.toLowerCase()
+    }
+
     // if bignumber
     if (_.get(result, 'toNumber')) {
       if (_.get(val, 'toNumber')) {
@@ -132,4 +138,18 @@ export const web3EvmIncreaseTime = async (web3, ts) => {
       return resolve(result)
     })
   })
+}
+
+export const promiseMapSerial = async (items, asyncFn) => {
+  const ret = []
+
+  await items.reduce((lastPromise, k, i) => (
+    lastPromise
+      .then(() => asyncFn(k))
+      .then(result => {
+        ret[i] = result
+      })
+  ), Promise.resolve())
+
+  return ret
 }

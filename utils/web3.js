@@ -7,6 +7,7 @@ const web3 = require('web3')
     'toHex',
     'toWei',
     'asciiToHex',
+    'isAddress',
   ].forEach(m => {
     exports[m] = web3.utils[m]
   })
