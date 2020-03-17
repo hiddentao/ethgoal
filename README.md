@@ -4,6 +4,8 @@
 
 Achieve goals with your friends' help, powered by the Ethereum blockchain.
 
+**Note: these contracts have not yet been audited, use at your own risk!**
+
 ## How it works
 
 1. Submit a "pledge" to the blockchain along with digital signatures of between 1 and 3 friends who agree to judge whether you've
