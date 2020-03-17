@@ -4,7 +4,7 @@
 
 Achieve goals with your friends' help, powered by the Ethereum blockchain.
 
-**Note: these contracts have not yet been audited, use at your own risk!**
+**NOTE: THESE CONTRACTS HAVE NOT YET BEEN AUDITED, USE AT YOUR OWN RISK!**
 
 ## How it works
 
