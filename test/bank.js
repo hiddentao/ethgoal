@@ -178,4 +178,38 @@ contract('Bank', accounts => {
       })
     })
   })
+
+  describe('profit withdrawals', () => {
+    beforeEach(async () => {
+      await settings.setController(accounts[0])
+
+      await mintableToken.mint(6)
+      await mintableToken.approve(bank.address, 6)
+      await bank.deposit(accounts[0], 1)
+      await bank.deposit(accounts[0], 2)
+      await bank.deposit(accounts[0], 3)
+      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(0)
+    })
+
+    it('cannot be by anyone', async () => {
+      await bank.withdrawProfit({ from: accounts[2] }).should.be.rejectedWith('not the owner')
+    })
+
+    it('are by the owner', async () => {
+      await bank.withdrawProfit().should.be.fulfilled
+      await mintableToken.balanceOf(accounts[0]).should.eventually.eq(15)
+
+      const ret = await bank.emitProfit()
+
+      expect(extractEventArgs(ret, events.Profit)).to.include({
+        amount: '0'
+      })
+    })
+
+    it('do not affect user deposit total', async () => {
+      await bank.withdrawProfit().should.be.fulfilled
+      await bank.getUserDepositTotal().should.eventually.eq(6)
+      await mintableToken.balanceOf(chai.address).should.eventually.eq(6)
+    })
+  })
 })
