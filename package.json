@@ -35,7 +35,7 @@
     "ganache-cli": "^6.8.2",
     "glob": "^7.1.6",
     "js-sha3": "^0.8.0",
-    "lodash": "^4.17.15",
+    "lodash": "^4.17.21",
     "solhint": "^2.3.0",
     "solidity-coverage": "^0.7.2",
     "truffle": "^5.1.10",
